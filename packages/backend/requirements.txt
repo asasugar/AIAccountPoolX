@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+websockets
+imap_tools
+httpx
+httpx-socks[asyncio]
+pydantic
+sqlalchemy>=2.0

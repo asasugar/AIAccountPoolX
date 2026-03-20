@@ -1,0 +1,17 @@
+{
+  "name": "ai-account-pool-x",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm -r --parallel run dev",
+    "dev:frontend": "pnpm --filter @ai-account-pool-x/frontend dev",
+    "dev:backend": "pnpm --filter @ai-account-pool-x/backend dev",
+    "build": "pnpm --filter @ai-account-pool-x/frontend build",
+    "install:frontend": "pnpm install",
+    "install:backend": "pnpm --filter @ai-account-pool-x/backend run install:deps",
+    "install:all": "pnpm run install:frontend && pnpm run install:backend",
+    "kill:backend": "lsof -ti:1455 | xargs kill -9 2>/dev/null || echo 'Port 1455 is free'",
+    "kill:frontend": "lsof -ti:3000 | xargs kill -9 2>/dev/null || echo 'Port 3000 is free'",
+    "kill:all": "pnpm kill:backend && pnpm kill:frontend"
+  }
+}

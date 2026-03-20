@@ -1,0 +1,51 @@
+{
+  "domain": "example.com",
+  "imap_host": "imap.example.com",
+  "imap_port": 993,
+  "imap_user": "user@example.com",
+  "imap_pass": "replace-with-imap-app-password",
+  "log_dir": "logs",
+  "data_dir": "data",
+  "run_count": 0,
+  "run_interval": 60,
+  "headless": false,
+  "proxy": null,
+  "log_enabled": false,
+  "email_prefix": "auto",
+  "proxy_pool": [],
+  "proxy_api": null,
+  "proxy_api_format": "text",
+  "proxy_api_field": "proxy",
+  "proxy_protocol": "http://",
+  "proxy_selection_strategy": "round_robin",
+  "proxy_refresh_interval": 300,
+  "proxy_max_uses": 1,
+  "proxy_auto_switch": true,
+  "newapi_base_url": null,
+  "newapi_token": null,
+  "newapi_user_id": null,
+  "aws_access_key_id": null,
+  "aws_secret_access_key": null,
+  "aws_regions": [],
+  "email_presets": [
+    {
+      "name": "QQ Mail",
+      "domain": "example.com",
+      "imap_host": "imap.qq.com",
+      "imap_port": 993,
+      "imap_user": "user@qq.com",
+      "imap_pass": "replace-with-app-password"
+    },
+    {
+      "name": "Outlook",
+      "domain": "outlook.com",
+      "imap_host": "outlook.office365.com",
+      "imap_port": 993,
+      "imap_user": "user@outlook.com",
+      "imap_pass": ""
+    }
+  ],
+  "active_email_preset": 0,
+  "outlook_client_id": null,
+  "outlook_refresh_token": null
+}

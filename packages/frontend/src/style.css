@@ -1,0 +1,207 @@
+@import "tailwindcss";
+
+:root {
+  --el-color-primary: #6366f1;
+  --el-color-success: #10b981;
+  --el-color-warning: #f59e0b;
+  --el-color-danger: #f43f5e;
+  --el-color-info: #64748b;
+  --el-bg-color: #0f172a;
+  --el-bg-color-overlay: #1e293b;
+  --el-text-color-primary: #f1f5f9;
+  --el-text-color-regular: #cbd5e1;
+  --el-border-color: #334155;
+  --el-border-color-light: #1e293b;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: #020617; /* slate-950 */
+  color: #e2e8f0; /* slate-200 */
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+#app {
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.4);
+}
+
+/* Element Plus Overrides */
+
+/* Dialog */
+.el-dialog {
+  --el-dialog-bg-color: #0f172a;
+  --el-dialog-box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  border: 1px solid #1e293b;
+  border-radius: 16px !important;
+}
+.el-dialog__header {
+  margin-right: 0 !important;
+  border-bottom: 1px solid #1e293b;
+  padding: 16px 20px !important;
+}
+.el-dialog__title {
+  font-size: 16px !important;
+  font-weight: 600 !important;
+}
+.el-dialog__body {
+  padding: 24px !important;
+}
+.el-dialog__footer {
+  border-top: 1px solid #1e293b;
+  padding: 16px 20px !important;
+}
+
+/* Inputs */
+.el-input__wrapper, .el-textarea__inner {
+  background-color: rgba(15, 23, 42, 0.5) !important;
+  box-shadow: none !important;
+  border: 1px solid rgba(51, 65, 85, 0.5) !important;
+  border-radius: 8px !important;
+  transition: all 0.2s;
+}
+.el-input__wrapper:hover, .el-textarea__inner:hover {
+  border-color: rgba(99, 102, 241, 0.4) !important;
+}
+.el-input__wrapper.is-focus, .el-textarea__inner:focus {
+  border-color: rgba(99, 102, 241, 0.6) !important;
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.3) !important;
+  background-color: rgba(15, 23, 42, 0.8) !important;
+}
+.el-input__inner {
+  color: #f1f5f9 !important;
+}
+
+/* Select */
+.el-select {
+  --el-select-input-focus-border-color: #6366f1;
+}
+.el-select-dropdown__item {
+  border-radius: 6px !important;
+  margin: 2px 6px !important;
+}
+.el-select-dropdown__item.selected {
+  background-color: rgba(99, 102, 241, 0.1) !important;
+  color: #818cf8 !important;
+  font-weight: 600;
+}
+.el-select-dropdown__item.hover,
+.el-select-dropdown__item:hover {
+  background-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+/* Popper/Dropdown/Tooltip */
+.el-popper.is-dark {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #1e293b !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+.el-popper.is-dark .el-popper__arrow::before {
+  background: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+.el-popper.is-light {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #1e293b !important;
+}
+.el-tooltip__trigger {
+  outline: none !important;
+}
+.el-dropdown-menu {
+  background-color: #0f172a !important;
+  border: 1px solid #1e293b !important;
+  padding: 6px !important;
+  border-radius: 12px !important;
+}
+.el-dropdown-menu__item {
+  color: #cbd5e1 !important;
+  border-radius: 8px !important;
+}
+.el-dropdown-menu__item:hover {
+  background-color: rgba(99, 102, 241, 0.1) !important;
+  color: #818cf8 !important;
+}
+
+/* Input Number */
+.el-input-number__decrease,
+.el-input-number__increase {
+  background-color: transparent !important;
+  border-color: rgba(51, 65, 85, 0.5) !important;
+  color: #94a3b8 !important;
+}
+.el-input-number__decrease:hover,
+.el-input-number__increase:hover {
+  color: #818cf8 !important;
+  background-color: rgba(99, 102, 241, 0.1) !important;
+}
+
+/* Message */
+.el-message {
+  background: #0f172a !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1) !important;
+}
+.el-message--success {
+  border-color: rgba(16, 185, 129, 0.2) !important;
+  background: rgba(6, 78, 59, 0.4) !important;
+}
+.el-message--error {
+  border-color: rgba(244, 63, 94, 0.2) !important;
+  background: rgba(136, 19, 55, 0.4) !important;
+}
+.el-message--warning {
+  border-color: rgba(245, 158, 11, 0.2) !important;
+  background: rgba(120, 53, 15, 0.4) !important;
+}
+
+/* Form Item Label */
+.el-form-item__label {
+  color: #94a3b8 !important;
+}
+
+/* Switch */
+.el-switch__core {
+  background-color: #334155 !important;
+  border-color: #475569 !important;
+}
+.el-switch.is-checked .el-switch__core {
+  background-color: #6366f1 !important;
+  border-color: #6366f1 !important;
+}
+
+/* Divider */
+.el-divider {
+  --el-border-color: #1e293b;
+}
+.el-divider__text {
+  background-color: transparent !important; /* Allow background to show through or match dialog */
+  color: #94a3b8;
+}
+/* Fix divider text bg in dialog */
+.el-dialog .el-divider__text {
+  background-color: #0f172a !important;
+}
