@@ -2,6 +2,15 @@
   "name": "ai-account-pool-x",
   "version": "1.0.0",
   "private": true,
+  "description": "基于 IMAP 邮箱批量注册多平台账号（如 OpenAI Codex），集中管理账号池，并支持与 NEW API 对接同步 | IMAP-based batch signup, account pool & NEW API sync",
+  "keywords": [
+    "openai-codex",
+    "auto-register",
+    "codex-manage",
+    "token-fetcher",
+    "openai",
+    "codex"
+  ],
   "scripts": {
     "dev": "pnpm -r --parallel run dev",
     "dev:frontend": "pnpm --filter @ai-account-pool-x/frontend dev",
