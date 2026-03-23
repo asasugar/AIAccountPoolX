@@ -42,22 +42,41 @@ async def fetch_channels() -> list:
         "Authorization": f"Bearer {token}",
         "New-Api-User": user_id,
     }
+    page_size = 100
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             r = await client.get(
                 f"{base_url}/api/channel/",
-                params={"p": 1, "page_size": 999, "id_sort": "true", "tag_mode": "false"},
+                params={"p": 1, "page_size": page_size, "id_sort": "true", "tag_mode": "false"},
                 headers=headers,
             )
-        if not r.is_success:
-            return []
-        data = r.json()
-        items = data.get("items")
-        if items is None and isinstance(data.get("data"), dict):
-            items = data["data"].get("items")
-        return items if isinstance(items, list) else []
+            if not r.is_success:
+                return []
+            data = r.json()
+            wrapper = data.get("data") if isinstance(data.get("data"), dict) else data
+            items = wrapper.get("items")
+            if not isinstance(items, list):
+                return []
+            total = wrapper.get("total", len(items))
+            all_items = list(items)
+            total_pages = (total + page_size - 1) // page_size
+            for page in range(2, total_pages + 1):
+                r = await client.get(
+                    f"{base_url}/api/channel/",
+                    params={"p": page, "page_size": page_size, "id_sort": "true", "tag_mode": "false"},
+                    headers=headers,
+                )
+                if not r.is_success:
+                    break
+                pd = r.json()
+                pw = pd.get("data") if isinstance(pd.get("data"), dict) else pd
+                page_items = pw.get("items")
+                if not isinstance(page_items, list) or not page_items:
+                    break
+                all_items.extend(page_items)
     except Exception:
         return []
+    return all_items
 
 
 @router.get("/channels")
