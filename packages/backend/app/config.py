@@ -33,21 +33,62 @@ def _normalize_email_presets(presets: object) -> list[dict]:
     normalized_presets: list[dict] = []
     for idx, preset in enumerate(presets):
         preset_data = preset if isinstance(preset, dict) else {}
-        base = deepcopy(default_presets[idx]) if idx < len(default_presets) else {
+        base = {
             "name": f"Preset {idx + 1}",
+            "email_type": "imap",
             "domain": "",
             "imap_host": "",
             "imap_port": default_presets[0]["imap_port"],
             "imap_user": "",
             "imap_pass": "",
+            "tempmail_base_url": "https://api.tempmail.lol/v2",
         }
         base.update(preset_data)
         if not base.get("name"):
             base["name"] = f"Preset {idx + 1}"
+        if not base.get("email_type"):
+            base["email_type"] = "imap"
         if not base.get("imap_port"):
             base["imap_port"] = default_presets[0]["imap_port"]
+        if str(base.get("email_type", "")).lower() == "tempmail_lol":
+            if not base.get("tempmail_base_url"):
+                base["tempmail_base_url"] = "https://api.tempmail.lol/v2"
+        else:
+            base.pop("tempmail_base_url", None)
         normalized_presets.append(base)
-    return normalized_presets
+    return _ensure_tempmail_preset(normalized_presets)
+
+
+def _is_tempmail_preset(preset: dict) -> bool:
+    preset_type = str(preset.get("email_type") or "").lower()
+    preset_name = str(preset.get("name") or "").lower()
+    return preset_type == "tempmail_lol" or "tempmail.lol" in preset_name
+
+
+def _ensure_tempmail_preset(presets: list[dict]) -> list[dict]:
+    if not presets:
+        return get_default_email_presets()
+    for p in presets:
+        if _is_tempmail_preset(p):
+            p.setdefault("email_type", "tempmail_lol")
+            p.setdefault("tempmail_base_url", "https://api.tempmail.lol/v2")
+            for other in presets:
+                if other is p:
+                    continue
+                if str(other.get("email_type", "")).lower() != "tempmail_lol":
+                    other.pop("tempmail_base_url", None)
+            return presets
+    tempmail_preset = {
+        "name": "Tempmail.lol",
+        "email_type": "tempmail_lol",
+        "domain": "",
+        "imap_host": "",
+        "imap_port": 993,
+        "imap_user": "",
+        "imap_pass": "",
+        "tempmail_base_url": "https://api.tempmail.lol/v2",
+    }
+    return [tempmail_preset, *presets]
 
 
 def _normalize_list(value: object) -> list:
@@ -71,8 +112,14 @@ def _relativize_paths(cfg: dict) -> None:
             cfg[key] = val[len(backend_prefix):]
 
 
-def normalize_config(cfg: Optional[dict], *, absolutize_paths: bool = False) -> dict:
+def normalize_config(
+    cfg: Optional[dict],
+    *,
+    absolutize_paths: bool = False,
+    apply_active_preset: bool = True,
+) -> dict:
     normalized = get_default_config_values()
+    has_user_active_preset = isinstance(cfg, dict) and "active_email_preset" in cfg
     if cfg:
         normalized.update(deepcopy(cfg))
 
@@ -84,14 +131,22 @@ def normalize_config(cfg: Optional[dict], *, absolutize_paths: bool = False) -> 
     if not isinstance(active_idx, int):
         active_idx = 0
     if normalized["email_presets"]:
-        active_idx = max(0, min(active_idx, len(normalized["email_presets"]) - 1))
+        tempmail_idx = next((i for i, p in enumerate(normalized["email_presets"]) if _is_tempmail_preset(p)), None)
+        if has_user_active_preset:
+            active_idx = max(0, min(active_idx, len(normalized["email_presets"]) - 1))
+        else:
+            active_idx = tempmail_idx if tempmail_idx is not None else 0
     else:
         active_idx = 0
     normalized["active_email_preset"] = active_idx
 
     if absolutize_paths:
         _absolutize_paths(normalized)
-    _apply_active_email_preset(normalized)
+    if apply_active_preset:
+        _apply_active_email_preset(normalized)
+    else:
+        normalized.pop("email_type", None)
+        normalized.pop("tempmail_base_url", None)
     return normalized
 
 
@@ -124,7 +179,7 @@ def load_config() -> dict:
 
 
 def save_config(cfg: dict):
-    save_data = normalize_config(cfg, absolutize_paths=False)
+    save_data = normalize_config(cfg, absolutize_paths=False, apply_active_preset=False)
     _relativize_paths(save_data)
     save_data = _order_config_for_save(save_data)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:

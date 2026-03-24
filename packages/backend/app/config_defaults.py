@@ -25,10 +25,20 @@ DEFAULT_PROXY_AUTO_SWITCH = True
 PROXY_SCHEMES = ("http://", "https://", "socks5://", "socks4://")
 
 DEFAULT_EMAIL_PRESETS = [
-    {"name": "QQ Mail", "domain": "", "imap_host": "imap.qq.com", "imap_port": DEFAULT_IMAP_PORT, "imap_user": "", "imap_pass": ""},
-    {"name": "Outlook", "domain": "outlook.com", "imap_host": "outlook.office365.com", "imap_port": DEFAULT_IMAP_PORT, "imap_user": "", "imap_pass": ""},
+    {
+        "name": "Tempmail.lol",
+        "email_type": "tempmail_lol",
+        "domain": "",
+        "imap_host": "",
+        "imap_port": DEFAULT_IMAP_PORT,
+        "imap_user": "",
+        "imap_pass": "",
+        "tempmail_base_url": "https://api.tempmail.lol/v2",
+    },
+    {"name": "QQ Mail", "email_type": "imap", "domain": "", "imap_host": "imap.qq.com", "imap_port": DEFAULT_IMAP_PORT, "imap_user": "", "imap_pass": ""},
+    {"name": "Outlook", "email_type": "imap", "domain": "outlook.com", "imap_host": "outlook.office365.com", "imap_port": DEFAULT_IMAP_PORT, "imap_user": "", "imap_pass": ""},
 ]
-ACTIVE_EMAIL_FIELDS = ("domain", "imap_host", "imap_port", "imap_user", "imap_pass")
+ACTIVE_EMAIL_FIELDS = ("email_type", "domain", "imap_host", "imap_port", "imap_user", "imap_pass", "tempmail_base_url")
 CONFIG_SAVE_ORDER = (
     "domain",
     "imap_host",

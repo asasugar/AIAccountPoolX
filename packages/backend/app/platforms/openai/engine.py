@@ -3,6 +3,7 @@ import base64
 import json
 import random
 import string
+import time
 import traceback
 import uuid
 from typing import Any, Dict, Optional
@@ -18,7 +19,7 @@ except ImportError:
 
 from ...config import get_config
 from ...database import db, Account
-from ...email_util import get_verification_code, generate_email
+from ...email_util import get_verification_code, generate_email, create_tempmail_inbox
 from ...log_manager import log_manager as log
 from ...oauth import (
     generate_pkce_codes, generate_state,
@@ -295,7 +296,13 @@ class OpenAIEngine(BaseEngine):
                 log.info(on_retry_message(attempt, e))
                 await asyncio.sleep(sleep_seconds(attempt))
 
-    async def _wait_for_email_otp(self, cfg: dict, email: str) -> Optional[str]:
+    async def _wait_for_email_otp(
+        self,
+        cfg: dict,
+        email: str,
+        tempmail_token: str = "",
+        otp_sent_at: Optional[float] = None,
+    ) -> Optional[str]:
         if await self._wait_for_stop_or_timeout(10):
             log.info("[OpenAI] 任务已停止")
             return None
@@ -312,6 +319,10 @@ class OpenAIEngine(BaseEngine):
                 outlook_client_id=cfg.get("outlook_client_id", ""),
                 outlook_refresh_token=cfg.get("outlook_refresh_token", ""),
                 stop_event=self._stop_event,
+                email_type=cfg.get("email_type", "imap"),
+                tempmail_token=tempmail_token,
+                tempmail_base_url=cfg.get("tempmail_base_url", "https://api.tempmail.lol/v2"),
+                otp_sent_at=otp_sent_at,
             )
             if otp:
                 log.success(f"[OpenAI] 获取到验证码: {otp}")
@@ -493,7 +504,19 @@ class OpenAIEngine(BaseEngine):
         log.info("[OpenAI] " + "=" * 40)
         log.info("[OpenAI] 开始 HTTP 接口注册流程 (无密码模式)")
 
-        email = custom_email if custom_email else generate_email(cfg)
+        tempmail_token = ""
+        email_type = str(cfg.get("email_type", "imap")).lower()
+        if custom_email:
+            email = custom_email
+        elif email_type == "tempmail_lol":
+            email, tempmail_token = await create_tempmail_inbox(
+                cfg.get("tempmail_base_url", "https://api.tempmail.lol/v2")
+            )
+            if not email or not tempmail_token:
+                log.error("[OpenAI] Tempmail.lol 创建邮箱失败")
+                return False
+        else:
+            email = generate_email(cfg)
         name = "".join(random.choices(string.ascii_letters, k=random.randint(5, 8))).capitalize()
 
         self._last_registered_email = email
@@ -607,6 +630,7 @@ class OpenAIEngine(BaseEngine):
                 sentinel = await self._get_sentinel_header(client, device_id)
                 if not sentinel:
                     return False
+                otp_sent_at = time.time()
                 resp = await client.post(
                     _url(SEND_EMAIL_OTP),
                     content=json.dumps({}),
@@ -620,7 +644,12 @@ class OpenAIEngine(BaseEngine):
 
                 # Step 5: 获取邮箱验证码 (保持原有 IMAP 流程)
                 log.step("[OpenAI] Step 5: 等待邮箱验证码...")
-                otp = await self._wait_for_email_otp(cfg, email)
+                otp = await self._wait_for_email_otp(
+                    cfg,
+                    email,
+                    tempmail_token=tempmail_token,
+                    otp_sent_at=otp_sent_at,
+                )
                 if not otp:
                     log.error("[OpenAI] 未获取到邮箱验证码")
                     return False

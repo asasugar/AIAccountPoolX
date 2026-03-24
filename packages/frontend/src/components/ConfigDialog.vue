@@ -39,17 +39,24 @@
       <el-form-item label="邮箱域名">
         <el-input v-model="form.domain" placeholder="example.com" />
       </el-form-item>
-      <el-form-item label="IMAP 主机">
+      <el-form-item v-if="currentPresetType !== 'tempmail_lol'" label="IMAP 主机">
         <div class="flex gap-2 w-full">
           <el-input v-model="form.imap_host" placeholder="imap.example.com" class="flex-1" />
           <el-input-number v-model="form.imap_port" :min="1" :max="65535" controls-position="right" class="w-28" />
         </div>
       </el-form-item>
-      <el-form-item label="IMAP 用户名">
+      <el-form-item v-if="currentPresetType !== 'tempmail_lol'" label="IMAP 用户名">
         <el-input v-model="form.imap_user" placeholder="user@example.com" />
       </el-form-item>
-      <el-form-item label="IMAP 密码">
+      <el-form-item v-if="currentPresetType !== 'tempmail_lol'" label="IMAP 密码">
         <el-input v-model="form.imap_pass" type="password" show-password placeholder="••••••••" />
+      </el-form-item>
+      <el-form-item v-if="currentPresetType === 'tempmail_lol'" label="Tempmail API">
+        <el-input
+          :model-value="form.email_presets[form.active_email_preset]?.tempmail_base_url || 'https://api.tempmail.lol/v2'"
+          @update:model-value="onTempmailBaseUrlChange"
+          placeholder="https://api.tempmail.lol/v2"
+        />
       </el-form-item>
 
       <div class="relative py-2 mt-4">
@@ -140,7 +147,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { Message, Cpu, Connection } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { configApi } from '../api'
@@ -148,10 +155,12 @@ import { configApi } from '../api'
 const emit = defineEmits<{ close: [] }>()
 const visible = ref(true)
 const saving = ref(false)
+const lastPresetIndex = ref(0)
 
 const defaultPresets = () => [
-  { name: 'QQ Mail', domain: '', imap_host: 'imap.qq.com', imap_port: 993, imap_user: '', imap_pass: '' },
-  { name: 'Outlook', domain: 'outlook.com', imap_host: 'outlook.office365.com', imap_port: 993, imap_user: '', imap_pass: '' },
+  { name: 'Tempmail.lol', email_type: 'tempmail_lol', domain: '', imap_host: '', imap_port: 993, imap_user: '', imap_pass: '', tempmail_base_url: 'https://api.tempmail.lol/v2' },
+  { name: 'QQ Mail', email_type: 'imap', domain: '', imap_host: 'imap.qq.com', imap_port: 993, imap_user: '', imap_pass: '' },
+  { name: 'Outlook', email_type: 'imap', domain: 'outlook.com', imap_host: 'outlook.office365.com', imap_port: 993, imap_user: '', imap_pass: '' },
 ]
 
 const form = ref({
@@ -176,6 +185,10 @@ const form = ref({
   active_email_preset: 0,
 })
 
+const currentPresetType = computed(() => {
+  return (form.value.email_presets[form.value.active_email_preset]?.email_type || 'imap').toLowerCase()
+})
+
 function syncFieldsFromPreset(idx: number) {
   const p = form.value.email_presets[idx]
   if (!p) return
@@ -197,7 +210,15 @@ function syncFieldsToPreset(idx: number) {
 }
 
 function onPresetChange(idx: number) {
+  syncFieldsToPreset(lastPresetIndex.value)
   syncFieldsFromPreset(idx)
+  lastPresetIndex.value = idx
+}
+
+function onTempmailBaseUrlChange(val: string) {
+  const p = form.value.email_presets[form.value.active_email_preset]
+  if (!p) return
+  p.tempmail_base_url = (val || '').trim() || 'https://api.tempmail.lol/v2'
 }
 
 onMounted(async () => {
@@ -211,7 +232,23 @@ onMounted(async () => {
     if (!form.value.aws_access_key_id) form.value.aws_access_key_id = ''
     if (!form.value.aws_secret_access_key) form.value.aws_secret_access_key = ''
     if (!form.value.email_presets?.length) form.value.email_presets = defaultPresets()
+    if (!form.value.email_presets.some((p: any) => (p.email_type || '').toLowerCase() === 'tempmail_lol')) {
+      form.value.email_presets.unshift({
+        name: 'Tempmail.lol',
+        email_type: 'tempmail_lol',
+        domain: '',
+        imap_host: '',
+        imap_port: 993,
+        imap_user: '',
+        imap_pass: '',
+        tempmail_base_url: 'https://api.tempmail.lol/v2',
+      } as any)
+    }
     if (form.value.active_email_preset == null) form.value.active_email_preset = 0
+    if (form.value.active_email_preset < 0 || form.value.active_email_preset >= form.value.email_presets.length) {
+      form.value.active_email_preset = 0
+    }
+    lastPresetIndex.value = form.value.active_email_preset
     syncFieldsFromPreset(form.value.active_email_preset)
   } catch {}
 })

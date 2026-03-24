@@ -13,9 +13,11 @@ OpenAI 账号注册与 Token 管理系统，提供 FastAPI 后端、Vue 3 控制
 
 - **邮箱与验证码**
   - 支持普通 IMAP 邮箱
-  - 内置 QQ Mail / Outlook 预设
+  - 支持 Tempmail.lol 临时邮箱
+  - 内置 Tempmail.lol / QQ Mail / Outlook 预设
   - Outlook 支持 OAuth2 IMAP 授权
-  - 自动生成邮箱别名并轮询验证码
+  - IMAP 自动生成邮箱别名并轮询验证码
+  - Tempmail.lol 通过 API 创建 inbox + token 拉取验证码
 
 - **账号与 Token 管理**
   - Token 列表、搜索、导出、删除、批量删除
@@ -157,16 +159,18 @@ pnpm dev:frontend
 
 ### 邮箱配置
 
-最少需要填写：
+系统通过 `email_presets` 管理多套邮箱配置，`active_email_preset` 决定当前生效预设。
 
-- `domain`
-- `imap_host`
-- `imap_port`
-- `imap_user`
-- `imap_pass`
-- `email_prefix`
+预设类型说明：
 
-其中 `email_presets` 支持保存多套邮箱配置，`active_email_preset` 用于切换当前生效预设。
+- `Tempmail.lol`：使用 `tempmail_base_url`（默认 `https://api.tempmail.lol/v2`）
+- `QQ Mail` / `Outlook`：使用 IMAP 参数 `domain`、`imap_host`、`imap_port`、`imap_user`、`imap_pass`
+
+说明：
+
+- `tempmail_base_url` 仅存在于 `Tempmail.lol` 预设内
+- 顶层不维护 `email_type` / `tempmail_base_url`
+- `email_prefix` 仅在 IMAP 邮箱别名生成时使用
 
 参考指南：
 

@@ -29,7 +29,18 @@
   "aws_regions": [],
   "email_presets": [
     {
+      "name": "Tempmail.lol",
+      "email_type": "tempmail_lol",
+      "domain": "",
+      "imap_host": "",
+      "imap_port": 993,
+      "imap_user": "",
+      "imap_pass": "",
+      "tempmail_base_url": "https://api.tempmail.lol/v2"
+    },
+    {
       "name": "QQ Mail",
+      "email_type": "imap",
       "domain": "example.com",
       "imap_host": "imap.qq.com",
       "imap_port": 993,
@@ -38,6 +49,7 @@
     },
     {
       "name": "Outlook",
+      "email_type": "imap",
       "domain": "outlook.com",
       "imap_host": "outlook.office365.com",
       "imap_port": 993,
