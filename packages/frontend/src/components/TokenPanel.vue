@@ -44,15 +44,26 @@
             {{ syncStatus.success_count }} 成功 / {{ syncStatus.fail_count }} 失败
           </span>
         </div>
-        <button
-          @click="handleSyncNewApi"
-          :disabled="syncing"
-          class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-600/80 hover:bg-amber-500 text-white text-xs font-medium transition-all disabled:opacity-50"
-        >
-          <span v-if="syncing" class="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-          <el-icon v-else><Upload /></el-icon>
-          {{ syncing ? '同步中...' : '一键同步 NewAPI' }}
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            @click="handleRetryRefreshToken"
+            :disabled="refreshingStatus3"
+            class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600/80 hover:bg-violet-500 text-white text-xs font-medium transition-all disabled:opacity-50"
+          >
+            <span v-if="refreshingStatus3" class="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+            <el-icon v-else><RefreshRight /></el-icon>
+            {{ refreshingStatus3 ? '刷新中...' : '一键刷新token' }}
+          </button>
+          <button
+            @click="handleSyncNewApi"
+            :disabled="syncing"
+            class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-600/80 hover:bg-amber-500 text-white text-xs font-medium transition-all disabled:opacity-50"
+          >
+            <span v-if="syncing" class="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+            <el-icon v-else><Upload /></el-icon>
+            {{ syncing ? '同步中...' : '一键同步 NewAPI' }}
+          </button>
+        </div>
       </div>
       <!-- 筛选栏 -->
       <div class="flex gap-2">
@@ -282,6 +293,7 @@ const currentPage = ref(1)
 const totalCount = ref(0)
 const pageSize = ref(20)
 const syncing = ref(false)
+const refreshingStatus3 = ref(false)
 const refreshLoadingId = ref<string | null>(null)
 const testChannelLoadingId = ref<number | null>(null)
 const deleteChannelLoadingId = ref<number | null>(null)
@@ -337,6 +349,42 @@ async function handleSyncNewApi() {
     ElMessage.error(e?.response?.data?.detail || '同步失败')
   } finally {
     syncing.value = false
+  }
+}
+
+async function handleRetryRefreshToken() {
+  refreshingStatus3.value = true
+  try {
+    const { data } = await tokenApi.list({
+      platform: filterPlatform.value,
+      page: 1,
+      page_size: 10000,
+      newApiChannelStatus: 3,
+    })
+    const allTokens: Token[] = data?.items || []
+    const targetTokens = allTokens
+    if (!targetTokens.length) {
+      await ElMessageBox.alert('成功数量: 0\n失败账号:\n无', '再次刷新token结果', { type: 'info' })
+      return
+    }
+
+    const results = await Promise.allSettled(
+      targetTokens.map(t => tokenApi.refreshToken(t.id, t.platform || ''))
+    )
+    const failEmails: string[] = []
+    let successCount = 0
+    results.forEach((r, idx) => {
+      if (r.status === 'fulfilled') successCount += 1
+      else failEmails.push(targetTokens[idx]?.email || targetTokens[idx]?.id || '')
+    })
+
+    const failLines = failEmails.length ? failEmails.join('\n') : '无'
+    await ElMessageBox.alert(`成功数量: ${successCount}\n失败账号:\n${failLines}`, '再次刷新token结果', { type: failEmails.length ? 'warning' : 'success' })
+    fetchTokens()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '再次刷新token失败')
+  } finally {
+    refreshingStatus3.value = false
   }
 }
 

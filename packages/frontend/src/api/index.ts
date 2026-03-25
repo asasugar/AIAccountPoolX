@@ -23,7 +23,14 @@ export const taskApi = {
 }
 
 export const tokenApi = {
-  list: (params?: { platform?: string; search?: string; page?: number; page_size?: number; include_newapi_channel_id?: boolean }) =>
+  list: (params?: {
+    platform?: string
+    search?: string
+    page?: number
+    page_size?: number
+    include_newapi_channel_id?: boolean
+    newApiChannelStatus?: number | string
+  }) =>
     api.get('/tokens', { params }),
   delete: (id: string, platform = '') =>
     api.delete(`/tokens/${id}`, { params: { platform } }),

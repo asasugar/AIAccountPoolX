@@ -40,6 +40,7 @@ async def list_tokens(
     page: int = 1,
     page_size: int = 50,
     include_newapi_channel_id: bool = True,
+    newApiChannelStatus: str = "",
 ):
     items, total = token_manager.list_tokens(
         platform=platform,
@@ -47,7 +48,8 @@ async def list_tokens(
         page=page,
         page_size=page_size
     )
-    if include_newapi_channel_id and items:
+    need_newapi_channel_info = include_newapi_channel_id or bool(newApiChannelStatus)
+    if need_newapi_channel_info and items:
         channels = await newapi_module.fetch_channels()
         email_to_channel = _build_email_channel_map(channels)
         for it in items:
@@ -55,6 +57,9 @@ async def list_tokens(
             it["newApiChannelId"] = channel.get("id")
             it["newApiChannelStatus"] = channel.get("status")
             it["newApiChannelOtherInfo"] = channel.get("other_info")
+        if newApiChannelStatus:
+            items = [it for it in items if str(it.get("newApiChannelStatus")) == str(newApiChannelStatus)]
+            total = len(items)
     else:
         for it in items:
             it.setdefault("newApiChannelId", None)
