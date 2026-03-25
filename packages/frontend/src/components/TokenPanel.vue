@@ -67,9 +67,18 @@
       </div>
       <!-- 筛选栏 -->
       <div class="flex gap-2">
-        <el-select v-model="filterPlatform" size="small" placeholder="平台" clearable @change="fetchTokens">
+        <el-select v-model="filterPlatform" size="small" placeholder="平台" clearable @change="handleFilterChange">
           <el-option label="全部" value="" />
           <el-option v-for="p in store.platforms" :key="p.id" :label="p.name" :value="p.id" />
+        </el-select>
+        <el-select v-model="filterNewApiStatus" size="small" placeholder="NewAPI状态" clearable @change="handleFilterChange">
+          <el-option label="已启用" value="1" />
+          <el-option label="已禁用" value="2" />
+          <el-option label="自动禁用" value="3" />
+        </el-select>
+        <el-select v-model="filterSyncedStatus" size="small" placeholder="同步状态" clearable @change="handleFilterChange">
+          <el-option label="已同步" value="true" />
+          <el-option label="待同步" value="false" />
         </el-select>
         <el-input v-model="searchQuery" size="small" placeholder="搜索邮箱..." clearable @input="debouncedSearch">
           <template #prefix><el-icon><Search /></el-icon></template>
@@ -289,6 +298,8 @@ const store = useAppStore()
 const tokens = ref<Token[]>([])
 const searchQuery = ref('')
 const filterPlatform = ref('')
+const filterNewApiStatus = ref('')
+const filterSyncedStatus = ref('')
 const currentPage = ref(1)
 const totalCount = ref(0)
 const pageSize = ref(20)
@@ -418,6 +429,8 @@ async function fetchTokens() {
       search: searchQuery.value,
       page: currentPage.value,
       page_size: pageSize.value,
+      newApiChannelStatus: filterNewApiStatus.value,
+      syncedToNewapi: filterSyncedStatus.value,
     })
     tokens.value = data.items
     totalCount.value = data.total
@@ -428,6 +441,11 @@ async function fetchTokens() {
       })
     }
   } catch {}
+}
+
+function handleFilterChange() {
+  currentPage.value = 1
+  fetchTokens()
 }
 
 function clearSelection() {

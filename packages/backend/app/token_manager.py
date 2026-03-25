@@ -23,7 +23,8 @@ class TokenManager:
         search: str = "",
         page: int = 1,
         page_size: int = 50,
-        status: str = ""
+        status: str = "",
+        synced_to_newapi: str = "",
     ) -> tuple[list[dict], int]:
         """
         获取 Token 列表（支持分页和搜索），关联 Account 表补充账号信息
@@ -39,6 +40,9 @@ class TokenManager:
                 base = base.filter(Token.platform == platform)
             if status:
                 base = base.filter(Token.status == status)
+            if synced_to_newapi != "":
+                synced_flag = str(synced_to_newapi).lower() in ("1", "true", "yes")
+                base = base.filter(Token.synced_to_newapi == synced_flag)
             if search:
                 base = base.filter(Token.email.ilike(f"%{search}%"))
 

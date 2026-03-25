@@ -41,13 +41,26 @@ async def list_tokens(
     page_size: int = 50,
     include_newapi_channel_id: bool = True,
     newApiChannelStatus: str = "",
+    syncedToNewapi: str = "",
 ):
-    items, total = token_manager.list_tokens(
-        platform=platform,
-        search=search,
-        page=page,
-        page_size=page_size
-    )
+    if newApiChannelStatus:
+        all_items, _ = token_manager.list_tokens(
+            platform=platform,
+            search=search,
+            page=1,
+            page_size=100000,
+            synced_to_newapi=syncedToNewapi,
+        )
+        items = all_items
+        total = len(all_items)
+    else:
+        items, total = token_manager.list_tokens(
+            platform=platform,
+            search=search,
+            page=page,
+            page_size=page_size,
+            synced_to_newapi=syncedToNewapi,
+        )
     need_newapi_channel_info = include_newapi_channel_id or bool(newApiChannelStatus)
     if need_newapi_channel_info and items:
         channels = await newapi_module.fetch_channels()
@@ -60,6 +73,9 @@ async def list_tokens(
         if newApiChannelStatus:
             items = [it for it in items if str(it.get("newApiChannelStatus")) == str(newApiChannelStatus)]
             total = len(items)
+            start = (page - 1) * page_size
+            end = start + page_size
+            items = items[start:end]
     else:
         for it in items:
             it.setdefault("newApiChannelId", None)

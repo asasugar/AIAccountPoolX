@@ -30,6 +30,7 @@ export const tokenApi = {
     page_size?: number
     include_newapi_channel_id?: boolean
     newApiChannelStatus?: number | string
+    syncedToNewapi?: number | string | boolean
   }) =>
     api.get('/tokens', { params }),
   delete: (id: string, platform = '') =>
