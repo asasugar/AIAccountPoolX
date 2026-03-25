@@ -1,14 +1,12 @@
 import asyncio
-import base64
 import json
 import random
 import string
 import time
-import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, Optional
-from urllib.parse import urlencode, urljoin, urlparse, parse_qs
+from typing import Optional
+from urllib.parse import urlencode
 
 import anyio
 import httpx
@@ -30,32 +28,26 @@ from ...proxy_pool import proxy_pool
 from ...token_manager import token_manager
 from ...aws_gateway import get_gateway
 from ..base import BaseEngine
-
-
-AUTH_BASE = "https://auth.openai.com"
-SENTINEL_API = "https://sentinel.openai.com/backend-api/sentinel/req"
-API_AUTHORIZE_CONTINUE = f"{AUTH_BASE}/api/accounts/authorize/continue"
-API_USER_REGISTER = f"{AUTH_BASE}/api/accounts/user/register"
-SEND_EMAIL_OTP = f"{AUTH_BASE}/api/accounts/email-otp/send"
-API_EMAIL_OTP_VALIDATE = f"{AUTH_BASE}/api/accounts/email-otp/validate"
-API_CREATE_ACCOUNT = f"{AUTH_BASE}/api/accounts/create_account"
-API_WORKSPACE_SELECT = f"{AUTH_BASE}/api/accounts/workspace/select"
-
-BASE_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate",
-    "Sec-Ch-Ua": '"Chromium";v="145", "Not:A-Brand";v="99"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"macOS"',
-}
-
-IP_CHECK_URLS = (
-    "https://api.ipify.org?format=json",
-    "http://ifconfig.me/ip",
-    "http://checkip.amazonaws.com",
+from .constants import (
+    API_AUTHORIZE_CONTINUE,
+    API_CREATE_ACCOUNT,
+    API_EMAIL_OTP_VALIDATE,
+    API_USER_REGISTER,
+    API_WORKSPACE_SELECT,
+    AUTH_BASE,
+    BASE_HEADERS,
+    IP_CHECK_URLS,
+    SEND_EMAIL_OTP,
+    SENTINEL_API,
 )
+from .http_helpers import (
+    extract_callback_params,
+    extract_workspace_id,
+    follow_redirect_chain_for_callback,
+    log_http_failure,
+)
+
+
 REGISTRATION_EXECUTOR = ThreadPoolExecutor(max_workers=50)
 
 
@@ -63,18 +55,6 @@ class OpenAIEngine(BaseEngine):
     platform_id = "openai"
     platform_name = "OpenAI"
     platform_icon = "🌐"
-
-    @staticmethod
-    def _decode_jwt_segment(seg: str) -> Dict[str, Any]:
-        raw = (seg or "").strip()
-        if not raw:
-            return {}
-        pad = "=" * ((4 - (len(raw) % 4)) % 4)
-        try:
-            decoded = base64.urlsafe_b64decode((raw + pad).encode("ascii"))
-            return json.loads(decoded.decode("utf-8"))
-        except Exception:
-            return {}
 
     def __init__(self):
         super().__init__()
@@ -173,30 +153,6 @@ class OpenAIEngine(BaseEngine):
             "codex_cli_simplified_flow": "true",
         }
         return f"{AUTH_ENDPOINT}?{urlencode(params)}"
-
-    @staticmethod
-    def _truncate_text(text: str, limit: int = 300) -> str:
-        text = (text or "").strip()
-        if len(text) <= limit:
-            return text
-        return f"{text[:limit]}..."
-
-    @classmethod
-    def _response_context(cls, resp: httpx.Response, body_limit: int = 300) -> str:
-        request = getattr(resp, "request", None)
-        method = getattr(request, "method", "UNKNOWN")
-        url = str(getattr(request, "url", "")) if request else ""
-        body_preview = cls._truncate_text(getattr(resp, "text", ""), limit=body_limit)
-        context = f"HTTP {resp.status_code}"
-        if method or url:
-            context = f"{context} [{method} {url}]"
-        if body_preview:
-            context = f"{context} - {body_preview}"
-        return context
-
-    @classmethod
-    def _log_http_failure(cls, prefix: str, resp: httpx.Response, body_limit: int = 300) -> None:
-        log.error(f"{prefix}: {cls._response_context(resp, body_limit=body_limit)}")
 
     async def _claim_round(self, count: int) -> Optional[int]:
         # 为 worker 申请一个新的执行轮次；count=0 表示无限轮次
@@ -462,37 +418,6 @@ class OpenAIEngine(BaseEngine):
             return otp
         return None
 
-    @staticmethod
-    def _extract_workspace_id(auth_cookie: str) -> tuple[bool, Optional[str]]:
-        auth_json = OpenAIEngine._decode_jwt_segment(auth_cookie.split(".")[0])
-        workspaces = auth_json.get("workspaces") or []
-        if not workspaces:
-            return False, None
-        workspace_id = str((workspaces[0] or {}).get("id") or "").strip()
-        return True, workspace_id or None
-
-    @staticmethod
-    def _extract_callback_params(callback_url: str) -> tuple[Optional[str], Optional[str]]:
-        parsed = urlparse(callback_url)
-        params = parse_qs(parsed.query)
-        return params.get("code", [None])[0], params.get("state", [None])[0]
-
-    async def _follow_redirect_chain_for_callback(self, client: httpx.AsyncClient, url_builder, continue_url: str) -> Optional[str]:
-        # 手动跟踪有限次重定向，直到捕获包含 code/state 的 callback URL
-        current_url = continue_url
-        for _ in range(6):
-            resp = await client.get(url_builder(current_url), follow_redirects=False)
-            location = resp.headers.get("location", "")
-            if resp.status_code not in [301, 302, 303, 307, 308]:
-                break
-            if not location:
-                break
-            next_url = urljoin(current_url, location)
-            if "code=" in next_url and "state=" in next_url:
-                return next_url
-            current_url = next_url
-        return None
-
     async def _run(
         self,
         count: int,
@@ -713,7 +638,7 @@ class OpenAIEngine(BaseEngine):
                     sleep_seconds=lambda _: 2,
                 )
                 if resp.status_code not in [200, 302]:
-                    self._log_http_failure("[OpenAI] 访问授权页面失败", resp, body_limit=200)
+                    log_http_failure("[OpenAI] 访问授权页面失败", resp, body_limit=200)
                     return False
 
                 device_id = client.cookies.get("oai-did")
@@ -742,7 +667,7 @@ class OpenAIEngine(BaseEngine):
                     },
                 )
                 if resp.status_code != 200:
-                    self._log_http_failure("[OpenAI] 提交注册表单失败", resp)
+                    log_http_failure("[OpenAI] 提交注册表单失败", resp)
                     return False
                 log.success(f"[OpenAI] 注册表单已提交: {resp.status_code}")
 
@@ -761,7 +686,7 @@ class OpenAIEngine(BaseEngine):
                     },
                 )
                 if resp.status_code != 200:
-                    self._log_http_failure("[OpenAI] 密码提交失败", resp)
+                    log_http_failure("[OpenAI] 密码提交失败", resp)
                     return False
                 log.success(f"[OpenAI] 密码已提交: {resp.status_code}")
 
@@ -816,7 +741,7 @@ class OpenAIEngine(BaseEngine):
                     sleep_seconds=lambda attempt: 2 + attempt,
                 )
                 if resp.status_code != 200:
-                    self._log_http_failure("[OpenAI] 验证码校验失败", resp)
+                    log_http_failure("[OpenAI] 验证码校验失败", resp)
                     return False
                 log.success(f"[OpenAI] 验证码校验通过: {resp.status_code}")
 
@@ -834,7 +759,7 @@ class OpenAIEngine(BaseEngine):
                     },
                 )
                 if resp.status_code != 200:
-                    self._log_http_failure("[OpenAI] 账户创建失败", resp)
+                    log_http_failure("[OpenAI] 账户创建失败", resp)
                     return False
                 log.success(f"[OpenAI] 账户已创建: {name}, {birthdate}")
 
@@ -845,7 +770,7 @@ class OpenAIEngine(BaseEngine):
                     log.error("[OpenAI] 未能获取到授权 Cookie")
                     return False
 
-                has_workspaces, workspace_id = self._extract_workspace_id(auth_cookie)
+                has_workspaces, workspace_id = extract_workspace_id(auth_cookie)
                 if not has_workspaces:
                     log.error("[OpenAI] 授权 Cookie 里没有 workspace 信息")
                     return False
@@ -862,7 +787,7 @@ class OpenAIEngine(BaseEngine):
                     },
                 )
                 if resp.status_code != 200:
-                    self._log_http_failure("[OpenAI] workspace select 失败", resp)
+                    log_http_failure("[OpenAI] workspace select 失败", resp)
                     return False
 
                 continue_url = str((resp.json() or {}).get("continue_url") or "").strip()
@@ -873,14 +798,14 @@ class OpenAIEngine(BaseEngine):
 
                 # Step 9: 手动跟踪重定向链，捕获 callback URL
                 log.step("[OpenAI] Step 9: 跟踪重定向获取 Callback...")
-                callback_url = await self._follow_redirect_chain_for_callback(client, _url, continue_url)
+                callback_url = await follow_redirect_chain_for_callback(client, _url, continue_url)
                 if not callback_url:
                     log.error("[OpenAI] 未能在重定向链中捕获 Callback URL")
                     return False
 
                 # Step 10: 从 callback URL 提取 code 并换取 Token
                 log.step("[OpenAI] Step 10: 换取 Token...")
-                auth_code, callback_state = self._extract_callback_params(callback_url)
+                auth_code, callback_state = extract_callback_params(callback_url)
 
                 if not auth_code:
                     log.error("[OpenAI] callback URL 中无 code")
@@ -905,7 +830,7 @@ class OpenAIEngine(BaseEngine):
                 )
 
                 if resp.status_code != 200:
-                    self._log_http_failure("[OpenAI] Token 兑换失败", resp)
+                    log_http_failure("[OpenAI] Token 兑换失败", resp)
                     return False
 
                 tokens = resp.json()

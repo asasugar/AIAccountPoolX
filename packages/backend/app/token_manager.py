@@ -9,6 +9,12 @@ from sqlalchemy import func, and_, Integer
 
 from .database import db, Token, Account
 from .log_manager import log_manager as log
+from .token_manager_helpers import (
+    apply_token_update,
+    attach_account_fields,
+    build_token_entity,
+    build_token_id,
+)
 
 
 class TokenManager:
@@ -56,11 +62,7 @@ class TokenManager:
             results = []
             for token, acc in rows:
                 d = token.to_dict()
-                d["first_name"] = acc.first_name if acc else None
-                d["last_name"] = acc.last_name if acc else None
-                d["username"] = acc.username if acc else None
-                d["account_status"] = acc.status if acc else None
-                results.append(d)
+                results.append(attach_account_fields(d, acc))
 
             return results, total
 
@@ -108,8 +110,7 @@ class TokenManager:
         保存 Token
         如果已存在则更新，否则创建
         """
-        safe_email = email.replace("@", "_at_").replace(".", "_")
-        token_id = f"{platform}_{safe_email}"
+        token_id = build_token_id(email, platform)
 
         with db.get_session() as session:
             # 查找现有记录
@@ -117,28 +118,11 @@ class TokenManager:
 
             if existing:
                 # 更新现有记录（如刷新 Token 后需重新同步 newAPI）
-                existing.access_token = token_data.get("access_token", "")
-                existing.refresh_token = token_data.get("refresh_token", "")
-                existing.id_token = token_data.get("id_token", "")
-                existing.token_type = token_data.get("token_type", "Bearer")
-                existing.expires_in = token_data.get("expires_in", 0)
-                existing.status = "active"
-                existing.synced_to_newapi = False
-                existing.updated_at = datetime.utcnow()
+                apply_token_update(existing, token_data)
                 log.info(f"Token 已更新: {email}")
             else:
                 # 创建新记录
-                new_token = Token(
-                    token_id=token_id,
-                    platform=platform,
-                    email=email,
-                    access_token=token_data.get("access_token", ""),
-                    refresh_token=token_data.get("refresh_token", ""),
-                    id_token=token_data.get("id_token", ""),
-                    token_type=token_data.get("token_type", "Bearer"),
-                    expires_in=token_data.get("expires_in", 0),
-                    status="active",
-                )
+                new_token = build_token_entity(token_id, platform, email, token_data)
                 session.add(new_token)
                 log.success(f"Token 已保存: {email}")
 

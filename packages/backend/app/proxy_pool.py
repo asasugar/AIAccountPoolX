@@ -2,7 +2,6 @@
 代理池模块 - 支持静态代理列表和动态 API 获取代理
 """
 import asyncio
-import random
 from typing import Optional
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -17,9 +16,13 @@ from .config_defaults import (
     DEFAULT_PROXY_PROTOCOL,
     DEFAULT_PROXY_REFRESH_INTERVAL,
     DEFAULT_PROXY_SELECTION_STRATEGY,
-    PROXY_SCHEMES,
 )
 from .log_manager import log_manager as log
+from .proxy_pool_helpers import (
+    ensure_proxy_scheme,
+    get_nested_json_value,
+    select_proxy_by_strategy,
+)
 
 
 @dataclass
@@ -98,19 +101,12 @@ class ProxyPool:
                 resp.raise_for_status()
 
                 if self._config.proxy_api_format == "json":
-                    data = resp.json()
-                    # 支持嵌套字段，如 "data.proxy"
-                    fields = self._config.proxy_api_field.split(".")
-                    for f in fields:
-                        data = data.get(f, {}) if isinstance(data, dict) else None
-                    proxy = str(data) if data else None
+                    proxy = get_nested_json_value(resp.json(), self._config.proxy_api_field)
                 else:
                     proxy = resp.text.strip()
 
                 if proxy:
-                    # 如果代理地址不包含协议，自动添加
-                    if not proxy.startswith(PROXY_SCHEMES):
-                        proxy = self._config.proxy_protocol + proxy
+                    proxy = ensure_proxy_scheme(proxy, self._config.proxy_protocol)
                     log.success(f"[ProxyPool] 从 API 获取代理: {proxy}")
                     return proxy
 
@@ -161,16 +157,9 @@ class ProxyPool:
                 available = self._proxies
 
         strategy = self._config.selection_strategy if self._config else "round_robin"
-
-        if strategy == "random":
-            return random.choice(available)
-        elif strategy == "least_used":
-            return min(available, key=lambda p: p.used_count)
-        else:  # round_robin
-            self._current_index = self._current_index % len(available)
-            proxy = available[self._current_index]
-            self._current_index += 1
-            return proxy
+        proxy, next_index = select_proxy_by_strategy(available, strategy, self._current_index)
+        self._current_index = next_index
+        return proxy
 
     def report_success(self, proxy: str):
         """报告代理使用成功"""
