@@ -1,5 +1,5 @@
 <template>
-  <div class="dark">
+  <div>
     <Dashboard />
   </div>
 </template>
@@ -27,7 +27,7 @@ function connect() {
 }
 
 onMounted(() => {
-  document.documentElement.classList.add('dark')
+  store.initTheme()
   connect()
 })
 

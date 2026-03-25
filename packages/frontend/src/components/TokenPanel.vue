@@ -101,7 +101,7 @@
         :row-key="(row: Token) => row.id"
         style="width: 100%"
         size="small"
-        :header-cell-style="{ background: 'rgba(30,41,59,0.5)', color: '#94a3b8', fontWeight: 600, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', border: 'none' }"
+        :header-cell-style="tableHeaderCellStyle"
         :row-style="{ background: 'transparent' }"
         :cell-style="{ border: 'none', padding: '12px 8px' }"
         row-class-name="hover:bg-slate-800/30 transition-colors"
@@ -330,6 +330,29 @@ const tokenStats = computed(() => {
   const s = store.stats
   const rate = s.total_count > 0 ? Math.round((s.success_count / s.total_count) * 100) : 0
   return { active, total, today, rate }
+})
+
+const tableHeaderCellStyle = computed(() => {
+  if (store.theme === 'light') {
+    return {
+      background: '#f8fafc',
+      color: '#64748b',
+      fontWeight: 600,
+      fontSize: '11px',
+      textTransform: 'uppercase',
+      letterSpacing: '0.05em',
+      border: 'none',
+    }
+  }
+  return {
+    background: 'rgba(30,41,59,0.5)',
+    color: '#94a3b8',
+    fontWeight: 600,
+    fontSize: '11px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    border: 'none',
+  }
 })
 
 let pollTimer: ReturnType<typeof setInterval> | null = null

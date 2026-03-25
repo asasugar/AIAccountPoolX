@@ -158,13 +158,22 @@
 
     <!-- 底部工具栏 -->
     <div class="p-4 border-t border-slate-800/50 bg-slate-900/40">
-      <button
-        @click="showConfig = true"
-        class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all text-sm font-medium group"
-      >
-        <el-icon class="group-hover:rotate-90 transition-transform duration-500"><Setting /></el-icon>
-        系统配置
-      </button>
+      <div class="flex gap-2">
+        <button
+          @click="store.toggleTheme()"
+          class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all text-sm font-medium group"
+        >
+          <el-icon><MoonNight v-if="store.theme === 'dark'" /><Sunny v-else /></el-icon>
+          {{ store.theme === 'dark' ? '浅色主题' : '深色主题' }}
+        </button>
+        <button
+          @click="showConfig = true"
+          class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all text-sm font-medium group"
+        >
+          <el-icon class="group-hover:rotate-90 transition-transform duration-500"><Setting /></el-icon>
+          系统配置
+        </button>
+      </div>
     </div>
 
     <ConfigDialog v-if="showConfig" @close="showConfig = false" />
@@ -173,7 +182,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { VideoPlay, VideoPause, Setting, Operation, Grid } from '@element-plus/icons-vue'
+import { VideoPlay, VideoPause, Setting, Operation, Grid, MoonNight, Sunny } from '@element-plus/icons-vue'
 import { useAppStore } from '../stores/app'
 import ConfigDialog from './ConfigDialog.vue'
 

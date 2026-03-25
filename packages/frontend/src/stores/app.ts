@@ -54,6 +54,7 @@ export const useAppStore = defineStore('app', () => {
     platforms: [],
   })
   const liveLog = ref(true)
+  const theme = ref<'dark' | 'light'>('dark')
   let pendingLogs: StoredLogEntry[] = []
   let flushTimer: ReturnType<typeof setTimeout> | null = null
   const seenLogIds = new Set<string>()
@@ -112,6 +113,28 @@ export const useAppStore = defineStore('app', () => {
     logs.value = []
   }
 
+  function applyTheme(nextTheme: 'dark' | 'light') {
+    theme.value = nextTheme
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('app_theme', nextTheme)
+      document.documentElement.classList.toggle('dark', nextTheme === 'dark')
+      document.body.classList.toggle('theme-light', nextTheme === 'light')
+    }
+  }
+
+  function initTheme() {
+    let initial: 'dark' | 'light' = 'dark'
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('app_theme')
+      if (saved === 'light' || saved === 'dark') initial = saved
+    }
+    applyTheme(initial)
+  }
+
+  function toggleTheme() {
+    applyTheme(theme.value === 'dark' ? 'light' : 'dark')
+  }
+
   async function fetchPlatforms() {
     try {
       const { data } = await platformApi.list()
@@ -142,7 +165,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   return {
-    logs, stats, liveLog, currentPlatform, platforms,
-    addLog, clearLogs, fetchPlatforms, fetchStats, startTask, stopTask
+    logs, stats, liveLog, currentPlatform, platforms, theme,
+    addLog, clearLogs, fetchPlatforms, fetchStats, startTask, stopTask, initTheme, toggleTheme
   }
 })
