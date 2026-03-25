@@ -236,7 +236,7 @@ async function handleStop() {
 }
 </script>
 
-<style>
+<style scoped>
 /* Custom Scrollbar for Sidebar */
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;

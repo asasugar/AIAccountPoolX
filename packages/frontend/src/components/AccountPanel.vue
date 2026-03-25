@@ -464,7 +464,7 @@ function formatTime(time?: string): string {
 }
 </script>
 
-<style>
+<style scoped>
 /* Scoped styles won't work easily for Element Plus internals unless using :deep,
    but for Dialogs appended to body we need global override or custom-class strategy.
    Here we rely on custom classes and some global CSS assumed in style.css or strict selectors. */

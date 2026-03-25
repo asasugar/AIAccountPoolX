@@ -15,13 +15,10 @@
         </span>
       </div>
       <div class="flex items-center gap-4">
-        <label class="flex items-center gap-2 cursor-pointer group select-none">
-          <input type="checkbox" v-model="store.liveLog" class="sr-only peer" />
-          <div class="relative w-8 h-4.5 bg-slate-700/50 rounded-full peer peer-checked:bg-indigo-500/30 transition-all duration-300 border border-slate-600 peer-checked:border-indigo-500/50">
-            <div class="absolute top-0.5 left-0.5 w-3.5 h-3.5 bg-slate-400 rounded-full transition-all duration-300 peer-checked:translate-x-3.5 peer-checked:bg-indigo-400 shadow-sm"></div>
-          </div>
-          <span class="text-xs font-medium text-slate-500 group-hover:text-slate-300 transition-colors">自动滚动</span>
-        </label>
+        <div class="flex items-center gap-2 select-none">
+          <el-switch v-model="store.liveLog" />
+          <span class="text-xs font-medium text-slate-500 transition-colors">自动滚动</span>
+        </div>
         <button
           @click="store.clearLogs()"
           class="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-rose-400 transition-colors px-2.5 py-1.5 rounded-lg hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20"

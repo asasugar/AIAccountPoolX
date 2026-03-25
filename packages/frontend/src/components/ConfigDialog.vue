@@ -2,13 +2,14 @@
   <el-dialog
     v-model="visible"
     title="系统配置"
-    width="560px"
+    width="760px"
     @close="$emit('close')"
     :close-on-click-modal="false"
     align-center
+    append-to-body
     class="config-dialog"
   >
-    <el-form :model="form" label-width="120px" label-position="left" class="space-y-1">
+    <el-form :model="form" label-width="120px" label-position="left" class="h-[60vh] overflow-y-auto">
 
       <div class="relative py-2">
         <el-divider content-position="left">
@@ -287,6 +288,11 @@ async function handleSave() {
 
 <style scoped>
 /* Scoped styles for spacing tweaks if needed */
+:deep(.config-dialog) {
+  min-width: 700px;
+  margin: 0 auto;
+}
+
 :deep(.el-form-item__label) {
   font-weight: 500;
   color: #94a3b8;
