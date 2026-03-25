@@ -135,14 +135,6 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="额度" width="100" align="center">
-          <template #default="{ row }">
-            <span v-if="row.quota" class="text-[11px] text-slate-400">
-              {{ row.quota.remaining.toLocaleString() }} / {{ row.quota.total.toLocaleString() }}
-            </span>
-            <span v-else class="text-slate-500">—</span>
-          </template>
-        </el-table-column>
         <el-table-column label="Access Token" min-width="160">
           <template #default="{ row }">
             <div class="flex items-center gap-1">
@@ -174,16 +166,6 @@
         <el-table-column label="操作" width="200" align="center">
           <template #default="{ row }">
             <div class="flex items-center justify-center gap-0.5 flex-wrap">
-              <el-tooltip content="刷新额度" placement="top">
-                <button
-                  @click="handleRefreshQuota(row)"
-                  :disabled="quotaLoadingId === row.id"
-                  class="w-7 h-7 rounded hover:bg-amber-500/20 flex items-center justify-center text-amber-400/70 hover:text-amber-400 transition-colors disabled:opacity-50"
-                >
-                  <span v-if="quotaLoadingId === row.id" class="w-3.5 h-3.5 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin"></span>
-                  <el-icon v-else :size="14"><Refresh /></el-icon>
-                </button>
-              </el-tooltip>
               <el-tooltip content="刷新 Token" placement="top">
                 <button
                   @click="handleRefreshToken(row)"
@@ -266,7 +248,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
-import { Search, CopyDocument, Delete, More, Key, Upload, Refresh, RefreshRight, VideoPlay, Remove } from '@element-plus/icons-vue'
+import { Search, CopyDocument, Delete, More, Key, Upload, RefreshRight, VideoPlay, Remove } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { tokenApi, newapiApi } from '../api'
 import { useAppStore } from '../stores/app'
@@ -287,7 +269,6 @@ interface Token {
   last_name: string | null
   username: string | null
   account_status: string | null
-  quota?: { total: number; used: number; remaining: number; plan_type: string }
   newApiChannelId?: number | null
   newApiChannelStatus?: number | string | null
   newApiChannelOtherInfo?: unknown
@@ -301,7 +282,6 @@ const currentPage = ref(1)
 const totalCount = ref(0)
 const pageSize = ref(20)
 const syncing = ref(false)
-const quotaLoadingId = ref<string | null>(null)
 const refreshLoadingId = ref<string | null>(null)
 const testChannelLoadingId = ref<number | null>(null)
 const deleteChannelLoadingId = ref<number | null>(null)
@@ -413,21 +393,6 @@ function debouncedSearch() {
     currentPage.value = 1
     fetchTokens()
   }, 300)
-}
-
-async function handleRefreshQuota(row: Token) {
-  quotaLoadingId.value = row.id
-  try {
-    const { data } = await tokenApi.refreshQuota(row.id, row.platform || '')
-    if (data.quota && row.quota) {
-      row.quota = data.quota
-    }
-    ElMessage.success('额度已更新')
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '刷新额度失败')
-  } finally {
-    quotaLoadingId.value = null
-  }
 }
 
 async function handleRefreshToken(row: Token) {

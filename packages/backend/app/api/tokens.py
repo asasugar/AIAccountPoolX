@@ -139,22 +139,6 @@ async def get_token_stats(platform: str = ""):
     return stats
 
 
-@router.get("/{token_id}/quota")
-async def get_quota(token_id: str, platform: str = ""):
-    quota = token_manager.get_quota(token_id, platform)
-    if not quota:
-        raise HTTPException(status_code=404, detail="Token 不存在")
-    return {"success": True, "quota": quota}
-
-
-@router.post("/{token_id}/quota")
-async def refresh_quota(token_id: str, platform: str = ""):
-    quota = token_manager.get_quota(token_id, platform)
-    if not quota:
-        raise HTTPException(status_code=404, detail="Token 不存在")
-    return {"success": True, "quota": quota, "message": "额度已更新（基于请求统计估算）"}
-
-
 @router.post("/{token_id}/refresh")
 async def refresh_token_route(token_id: str, platform: str = ""):
     token = token_manager.get_token(token_id, platform)

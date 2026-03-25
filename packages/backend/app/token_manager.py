@@ -1,8 +1,6 @@
 """
 Token 管理器 - 基于 SQLite 数据库
 """
-import base64
-import json
 from datetime import datetime
 from typing import Optional
 from threading import Lock
@@ -11,28 +9,6 @@ from sqlalchemy import func, and_, Integer
 
 from .database import db, Token, Account
 from .log_manager import log_manager as log
-
-
-def _parse_plan_from_id_token(id_token: Optional[str]) -> str:
-    plan_type = "free"
-    if not id_token:
-        return plan_type
-    try:
-        parts = id_token.split(".")
-        if len(parts) != 3:
-            return plan_type
-        payload_b64 = parts[1]
-        pad = "=" * ((4 - (len(payload_b64) % 4)) % 4)
-        payload = json.loads(base64.urlsafe_b64decode((payload_b64 + pad).encode()).decode())
-        auth_info = payload.get("https://api.openai.com/auth") or {}
-        raw = (auth_info.get("chatgpt_plan_type") or "").lower()
-        if "team" in raw:
-            return "team"
-        if "plus" in raw or "pro" in raw:
-            return "plus"
-    except Exception:
-        pass
-    return plan_type
 
 
 class TokenManager:
@@ -80,8 +56,6 @@ class TokenManager:
                 d["last_name"] = acc.last_name if acc else None
                 d["username"] = acc.username if acc else None
                 d["account_status"] = acc.status if acc else None
-                quota = self.get_quota(d["id"], d.get("platform") or "")
-                d["quota"] = quota or {"total": 50000, "used": 0, "remaining": 50000, "plan_type": "free"}
                 results.append(d)
 
             return results, total
@@ -291,27 +265,6 @@ class TokenManager:
             self.save_token(email, data, platform)
             count += 1
         return count
-
-    def get_quota(self, token_id: str, platform: str = "") -> Optional[dict]:
-        token = self.get_token(token_id, platform)
-        if not token:
-            return None
-        plan_type = _parse_plan_from_id_token(token.get("id_token"))
-        total_quota = 50000
-        if plan_type == "plus":
-            total_quota = 500000
-        elif plan_type == "team":
-            total_quota = 1000000
-        used_count = token.get("used_count") or 0
-        estimated_used = used_count * 100
-        remaining = max(0, total_quota - estimated_used)
-        return {
-            "total": total_quota,
-            "used": estimated_used,
-            "remaining": remaining,
-            "plan_type": plan_type,
-        }
-
 
 # 全局实例
 token_manager = TokenManager()
