@@ -23,6 +23,8 @@ DEFAULT_PROXY_REFRESH_INTERVAL = 300
 DEFAULT_PROXY_MAX_USES = 1
 DEFAULT_PROXY_AUTO_SWITCH = True
 PROXY_SCHEMES = ("http://", "https://", "socks5://", "socks4://")
+DEFAULT_NEWAPI_TYPE_OPENAI = 57
+DEFAULT_NEWAPI_MODELS = "gpt-5.4,gpt-5.3,gpt-5,gpt-5-codex,gpt-5-codex-mini,gpt-5.1,gpt-5.1-codex,gpt-5.1-codex-max,gpt-5.1-codex-mini,gpt-5.2,gpt-5.2-codex,gpt-5.3-codex,gpt-5-openai-compact,gpt-5-codex-openai-compact,gpt-5-codex-mini-openai-compact,gpt-5.1-openai-compact,gpt-5.1-codex-openai-compact,gpt-5.1-codex-max-openai-compact,gpt-5.1-codex-mini-openai-compact,gpt-5.2-openai-compact,gpt-5.2-codex-openai-compact,gpt-5.3-codex-openai-compact"
 
 DEFAULT_EMAIL_PRESETS = [
     {
@@ -64,6 +66,9 @@ CONFIG_SAVE_ORDER = (
     "data_dir",
     "newapi_base_url",
     "newapi_token",
+    "newapi_type_openai",
+    "newapi_models",
+    "newapi_channel_base_url",
     "newapi_sync_last_at",
     "newapi_sync_status",
     "newapi_sync_message",
@@ -113,6 +118,9 @@ def get_default_config_values() -> dict:
         "newapi_base_url": None,
         "newapi_token": None,
         "newapi_user_id": None,
+        "newapi_type_openai": DEFAULT_NEWAPI_TYPE_OPENAI,
+        "newapi_models": DEFAULT_NEWAPI_MODELS,
+        "newapi_channel_base_url": None,
         "aws_access_key_id": None,
         "aws_secret_access_key": None,
         "aws_regions": [],

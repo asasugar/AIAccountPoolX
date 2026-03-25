@@ -2,6 +2,8 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 from .config_defaults import (
+    DEFAULT_NEWAPI_MODELS,
+    DEFAULT_NEWAPI_TYPE_OPENAI,
     DEFAULT_EMAIL_PREFIX,
     DEFAULT_HEADLESS,
     DEFAULT_IMAP_PORT,
@@ -102,6 +104,9 @@ class ConfigModel(BaseModel):
     newapi_base_url: Optional[str] = None
     newapi_token: Optional[str] = None
     newapi_user_id: Optional[str] = None
+    newapi_type_openai: int = DEFAULT_NEWAPI_TYPE_OPENAI
+    newapi_models: str = DEFAULT_NEWAPI_MODELS
+    newapi_channel_base_url: Optional[str] = None
     aws_access_key_id: Optional[str] = None
     aws_secret_access_key: Optional[str] = None
     aws_regions: list[str] = Field(default_factory=list)

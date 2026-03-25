@@ -107,6 +107,15 @@
       <el-form-item label="用户 ID">
         <el-input v-model="form.newapi_user_id" placeholder="New-Api-User，需与登录用户一致" />
       </el-form-item>
+      <el-form-item label="渠道类型">
+        <el-input-number v-model="form.newapi_type_openai" :min="1" controls-position="right" class="w-full" />
+      </el-form-item>
+      <el-form-item label="模型列表">
+        <el-input v-model="form.newapi_models" type="textarea" :rows="3" placeholder="gpt-5.3,gpt-5,..." />
+      </el-form-item>
+      <el-form-item label="渠道Base URL">
+        <el-input v-model="form.newapi_channel_base_url" placeholder="可留空，默认空字符串" />
+      </el-form-item>
 
       <div class="relative py-2 mt-4">
         <el-divider content-position="left">
@@ -179,6 +188,9 @@ const form = ref({
   newapi_base_url: '',
   newapi_token: '',
   newapi_user_id: '',
+  newapi_type_openai: 57,
+  newapi_models: 'gpt-5.3,gpt-5,gpt-5-codex,gpt-5-codex-mini,gpt-5.1,gpt-5.1-codex,gpt-5.1-codex-max,gpt-5.1-codex-mini,gpt-5.2,gpt-5.2-codex,gpt-5.3-codex,gpt-5-openai-compact,gpt-5-codex-openai-compact,gpt-5-codex-mini-openai-compact,gpt-5.1-openai-compact,gpt-5.1-codex-openai-compact,gpt-5.1-codex-max-openai-compact,gpt-5.1-codex-mini-openai-compact,gpt-5.2-openai-compact,gpt-5.2-codex-openai-compact,gpt-5.3-codex-openai-compact',
+  newapi_channel_base_url: '',
   aws_access_key_id: '',
   aws_secret_access_key: '',
   email_presets: defaultPresets(),
@@ -229,6 +241,9 @@ onMounted(async () => {
     if (!form.value.newapi_base_url) form.value.newapi_base_url = ''
     if (!form.value.newapi_token) form.value.newapi_token = ''
     if (!form.value.newapi_user_id) form.value.newapi_user_id = ''
+    if (!form.value.newapi_type_openai) form.value.newapi_type_openai = 57
+    if (!form.value.newapi_models) form.value.newapi_models = 'gpt-5.3,gpt-5,gpt-5-codex,gpt-5-codex-mini,gpt-5.1,gpt-5.1-codex,gpt-5.1-codex-max,gpt-5.1-codex-mini,gpt-5.2,gpt-5.2-codex,gpt-5.3-codex,gpt-5-openai-compact,gpt-5-codex-openai-compact,gpt-5-codex-mini-openai-compact,gpt-5.1-openai-compact,gpt-5.1-codex-openai-compact,gpt-5.1-codex-max-openai-compact,gpt-5.1-codex-mini-openai-compact,gpt-5.2-openai-compact,gpt-5.2-codex-openai-compact,gpt-5.3-codex-openai-compact'
+    if (!form.value.newapi_channel_base_url) form.value.newapi_channel_base_url = ''
     if (!form.value.aws_access_key_id) form.value.aws_access_key_id = ''
     if (!form.value.aws_secret_access_key) form.value.aws_secret_access_key = ''
     if (!form.value.email_presets?.length) form.value.email_presets = defaultPresets()

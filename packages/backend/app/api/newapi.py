@@ -10,10 +10,9 @@ from ..token_manager import token_manager
 from ..database import db, Token
 
 router = APIRouter(prefix="/api/newapi", tags=["newapi"])
-# 57是openai oauth的类型
-NEWAPI_TYPE_OPENAI = 57
-DEFAULT_MODELS = "gpt-5.3,gpt-5,gpt-5-codex,gpt-5-codex-mini,gpt-5.1,gpt-5.1-codex,gpt-5.1-codex-max,gpt-5.1-codex-mini,gpt-5.2,gpt-5.2-codex,gpt-5.3-codex,gpt-5-openai-compact,gpt-5-codex-openai-compact,gpt-5-codex-mini-openai-compact,gpt-5.1-openai-compact,gpt-5.1-codex-openai-compact,gpt-5.1-codex-max-openai-compact,gpt-5.1-codex-mini-openai-compact,gpt-5.2-openai-compact,gpt-5.2-codex-openai-compact,gpt-5.3-codex-openai-compact"
-DEFAULT_BASE_URL = ""
+DEFAULT_NEWAPI_TYPE_OPENAI = 57
+DEFAULT_NEWAPI_MODELS = "gpt-5.4,gpt-5.3,gpt-5,gpt-5-codex,gpt-5-codex-mini,gpt-5.1,gpt-5.1-codex,gpt-5.1-codex-max,gpt-5.1-codex-mini,gpt-5.2,gpt-5.2-codex,gpt-5.3-codex,gpt-5-openai-compact,gpt-5-codex-openai-compact,gpt-5-codex-mini-openai-compact,gpt-5.1-openai-compact,gpt-5.1-codex-openai-compact,gpt-5.1-codex-max-openai-compact,gpt-5.1-codex-mini-openai-compact,gpt-5.2-openai-compact,gpt-5.2-codex-openai-compact,gpt-5.3-codex-openai-compact"
+DEFAULT_NEWAPI_CHANNEL_BASE_URL = ""
 
 
 def _get_sync_status(cfg: dict) -> dict:
@@ -31,6 +30,17 @@ def _get_headers(cfg: dict) -> tuple:
     token = cfg.get("newapi_token")
     user_id = (cfg.get("newapi_user_id") or "").strip()
     return base_url, token, user_id
+
+
+def _get_channel_sync_settings(cfg: dict) -> tuple[int, str, str]:
+    type_val = cfg.get("newapi_type_openai", DEFAULT_NEWAPI_TYPE_OPENAI)
+    try:
+        channel_type = int(type_val)
+    except Exception:
+        channel_type = DEFAULT_NEWAPI_TYPE_OPENAI
+    models = (cfg.get("newapi_models") or DEFAULT_NEWAPI_MODELS).strip() or DEFAULT_NEWAPI_MODELS
+    channel_base_url = (cfg.get("newapi_channel_base_url") or DEFAULT_NEWAPI_CHANNEL_BASE_URL).strip()
+    return channel_type, models, channel_base_url
 
 
 async def fetch_channels() -> list:
@@ -195,6 +205,7 @@ class UpdateChannelRequest(BaseModel):
 async def update_channel(body: UpdateChannelRequest):
     cfg = get_config()
     base_url, token, user_id = _get_headers(cfg)
+    channel_type, models, channel_base_url = _get_channel_sync_settings(cfg)
     if not base_url or not token or not user_id:
         raise HTTPException(status_code=400, detail="请先配置 newAPI")
     t = token_manager.get_token(body.token_id, body.platform or "")
@@ -207,10 +218,10 @@ async def update_channel(body: UpdateChannelRequest):
         "id": body.channel_id,
         "auto_ban": 1,
         "name": t.get("email") or "",
-        "type": NEWAPI_TYPE_OPENAI,
+        "type": channel_type,
         "key": json.dumps({"access_token": t.get("access_token", ""), "account_id": account_name}, ensure_ascii=False),
-        "base_url": DEFAULT_BASE_URL,
-        "models": DEFAULT_MODELS,
+        "base_url": channel_base_url,
+        "models": models,
         "multi_key_mode": "random",
         "group": "default",
         "groups": ["default"],
@@ -254,6 +265,7 @@ async def sync_to_newapi():
     base_url = (cfg.get("newapi_base_url") or "").rstrip("/")
     token = cfg.get("newapi_token")
     user_id = (cfg.get("newapi_user_id") or "").strip()
+    channel_type, models, channel_base_url = _get_channel_sync_settings(cfg)
     if not base_url or not token:
         raise HTTPException(
             status_code=400,
@@ -295,10 +307,10 @@ async def sync_to_newapi():
         channel = {
             "auto_ban": 1,
             "name": t.get("email") or f"{now_str}-auto",
-            "type": NEWAPI_TYPE_OPENAI,
+            "type": channel_type,
             "key": json.dumps({"access_token": t.get("access_token", ""), "account_id": account_name}, ensure_ascii=False),
-            "base_url": DEFAULT_BASE_URL,
-            "models": DEFAULT_MODELS,
+            "base_url": channel_base_url,
+            "models": models,
             "multi_key_mode": "random",
             "group": "default",
             "groups": ["default"],
