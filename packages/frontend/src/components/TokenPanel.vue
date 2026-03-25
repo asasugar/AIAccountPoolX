@@ -12,17 +12,29 @@
             <p class="text-[10px] text-slate-500">共 {{ tokenStats.total }} 个 · {{ tokenStats.active }} 活跃</p>
           </div>
         </div>
-        <el-dropdown trigger="click">
-          <button class="w-8 h-8 rounded-lg hover:bg-slate-800 flex items-center justify-center transition-colors border border-transparent hover:border-slate-700/50">
-            <el-icon class="text-slate-500"><More /></el-icon>
-          </button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item @click="handleExport('')">导出全部</el-dropdown-item>
-              <el-dropdown-item @click="handleExport(store.currentPlatform)">导出当前平台</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+        <div class="flex items-center gap-1.5">
+          <a
+            href="https://github.com/asasugar/AIAccountPoolX"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="w-8 h-8 rounded-lg hover:bg-slate-800 flex items-center justify-center transition-colors border border-transparent hover:border-slate-700/50 text-slate-500 hover:text-slate-300"
+          >
+            <svg viewBox="0 0 24 24" class="w-4 h-4 fill-current" aria-hidden="true">
+              <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.9.58.1.79-.25.79-.56 0-.28-.01-1.2-.02-2.18-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.27-1.68-1.27-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.75 1.17 1.75 1.17 1.02 1.76 2.68 1.25 3.34.95.1-.74.4-1.25.72-1.54-2.56-.29-5.26-1.28-5.26-5.71 0-1.26.45-2.28 1.17-3.09-.12-.29-.51-1.47.11-3.06 0 0 .96-.31 3.14 1.18a10.9 10.9 0 0 1 5.72 0c2.18-1.5 3.14-1.18 3.14-1.18.62 1.59.23 2.77.11 3.06.73.81 1.17 1.83 1.17 3.09 0 4.44-2.7 5.42-5.28 5.7.41.36.78 1.08.78 2.18 0 1.58-.01 2.85-.01 3.24 0 .31.21.67.8.56A11.52 11.52 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z" />
+            </svg>
+          </a>
+          <el-dropdown trigger="click">
+            <button class="w-8 h-8 rounded-lg hover:bg-slate-800 flex items-center justify-center transition-colors border border-transparent hover:border-slate-700/50">
+              <el-icon class="text-slate-500"><More /></el-icon>
+            </button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="handleExport('')">导出全部</el-dropdown-item>
+                <el-dropdown-item @click="handleExport(store.currentPlatform)">导出当前平台</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
       </div>
 
       <div class="flex items-center justify-between gap-2 mb-3">
