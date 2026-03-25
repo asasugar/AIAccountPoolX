@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from ..config import get_config, save_config
 from ..database import Token, db
+from ..log_manager import log_manager as log
 from ..token_manager import token_manager
 
 
@@ -86,6 +87,9 @@ async def fetch_channels() -> list:
             if not r.is_success:
                 return []
             data = r.json()
+            if isinstance(data, dict) and data.get("success") is False:
+                log.error(f"[newAPI] 拉取渠道失败: {data.get('message', '未知错误')}")
+                return []
             wrapper = data.get("data") if isinstance(data.get("data"), dict) else data
             items = wrapper.get("items")
             if not isinstance(items, list):

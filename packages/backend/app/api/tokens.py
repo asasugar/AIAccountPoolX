@@ -19,17 +19,25 @@ class BatchDeleteRequest(BaseModel):
     ids: list[str] = []
 
 
-def _build_email_channel_map(channels: list[dict]) -> dict[str, dict]:
-    email_to_channel: dict[str, dict] = {}
+def _build_email_channel_map(channels: list[dict]) -> dict[str, list[dict]]:
+    email_to_channel: dict[str, list[dict]] = {}
     for channel in channels:
-        name = str(channel.get("name", "")).strip()
+        name = str(channel.get("name", "")).strip().lower()
         if not name:
             continue
-        email_to_channel[name] = {
+        status_val = channel.get("status")
+        if status_val is None:
+            status_val = channel.get("channel_status")
+        if status_val is None:
+            status_val = channel.get("state")
+        payload = {
             "id": channel.get("id"),
-            "status": channel.get("status"),
+            "status": status_val,
             "other_info": channel.get("other_info"),
         }
+        if name not in email_to_channel:
+            email_to_channel[name] = []
+        email_to_channel[name].append(payload)
     return email_to_channel
 
 
@@ -66,10 +74,13 @@ async def list_tokens(
         channels = await newapi_module.fetch_channels()
         email_to_channel = _build_email_channel_map(channels)
         for it in items:
-            channel = email_to_channel.get((it.get("email") or "").strip()) or {}
-            it["newApiChannelId"] = channel.get("id")
-            it["newApiChannelStatus"] = channel.get("status")
-            it["newApiChannelOtherInfo"] = channel.get("other_info")
+            matched_channels = email_to_channel.get((it.get("email") or "").strip().lower()) or []
+            first_channel = matched_channels[0] if matched_channels else {}
+            it["newApiChannelId"] = first_channel.get("id")
+            it["newApiChannelStatus"] = first_channel.get("status")
+            it["newApiChannelOtherInfo"] = first_channel.get("other_info")
+            it["newApiChannelIds"] = [c.get("id") for c in matched_channels if c.get("id") is not None]
+            it["newApiChannels"] = matched_channels
         if newApiChannelStatus:
             items = [it for it in items if str(it.get("newApiChannelStatus")) == str(newApiChannelStatus)]
             total = len(items)
@@ -81,6 +92,8 @@ async def list_tokens(
             it.setdefault("newApiChannelId", None)
             it.setdefault("newApiChannelStatus", None)
             it.setdefault("newApiChannelOtherInfo", None)
+            it.setdefault("newApiChannelIds", [])
+            it.setdefault("newApiChannels", [])
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
@@ -94,9 +107,12 @@ async def batch_delete_tokens(body: BatchDeleteRequest, platform: str = ""):
     for token_id in body.ids:
         token = token_manager.get_token(token_id, platform)
         if token:
-            cid = (email_to_channel.get((token.get("email") or "").strip()) or {}).get("id")
-            if cid is not None:
-                channel_ids.append(cid)
+            matched_channels = email_to_channel.get((token.get("email") or "").strip().lower()) or []
+            for channel in matched_channels:
+                cid = channel.get("id")
+                if cid is not None:
+                    channel_ids.append(cid)
+    channel_ids = list(dict.fromkeys(channel_ids))
     if channel_ids:
         await newapi_module.batch_delete_channel_ids(channel_ids)
     deleted = token_manager.batch_delete_tokens(body.ids, platform)

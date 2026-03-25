@@ -21,7 +21,7 @@ OpenAI 账号注册与 Token 管理系统，提供 FastAPI 后端、Vue 3 控制
 
 - **账号与 Token 管理**
   - Token 列表、搜索、导出、删除、批量删除
-  - Token 刷新、额度估算、占用/释放
+  - Token 刷新、占用/释放
   - 账号列表、详情、编辑、删除、统计
   - 可建立账号与 Token 的邮箱关联
 
@@ -56,16 +56,27 @@ OpenAI 账号注册与 Token 管理系统，提供 FastAPI 后端、Vue 3 控制
 AIAccountPoolX/
 ├── package.json
 ├── pnpm-workspace.yaml
+├── docs/
+│   └── screenshots/              # 无头浏览器生成的界面截图
 ├── packages/
 │   ├── backend/
 │   │   ├── app/
 │   │   │   ├── main.py                # FastAPI 入口
 │   │   │   ├── engine.py              # 平台引擎注册
 │   │   │   ├── api/                   # REST / WebSocket 路由
+│   │   │   ├── services/              # 业务服务层
 │   │   │   ├── platforms/openai/      # OpenAI 注册实现
-│   │   │   ├── database.py            # SQLAlchemy 模型与数据库
+│   │   │   ├── platforms/openai/constants.py
+│   │   │   ├── platforms/openai/http_helpers.py
+│   │   │   ├── email_utils/           # 邮箱地址/IMAP/Tempmail
+│   │   │   ├── db_models.py           # SQLAlchemy 模型
+│   │   │   ├── db_runtime.py          # 数据库运行时与会话
+│   │   │   ├── database.py            # 兼容导出层
+│   │   │   ├── config_utils.py        # 配置归一化与路径处理
 │   │   │   ├── token_manager.py       # Token 管理
+│   │   │   ├── token_manager_helpers.py
 │   │   │   ├── proxy_pool.py          # 代理池
+│   │   │   ├── proxy_pool_helpers.py
 │   │   │   └── aws_gateway.py         # AWS API Gateway 轮换
 │   │   ├── config.example.json        # 安全示例配置
 │   │   ├── requirements.txt
@@ -154,6 +165,22 @@ pnpm dev:frontend
 
 - 前端：`http://localhost:3000`
 - 后端：`http://localhost:1455`
+
+## 界面截图
+
+以下截图由无头浏览器在本地运行项目页面后自动采集。
+
+### 控制台总览
+
+![控制台总览](docs/screenshots/dashboard-overview.png)
+
+### 任务控制区域
+
+![任务控制区域](docs/screenshots/task-control-panel.png)
+
+### 系统配置弹窗
+
+![系统配置弹窗](docs/screenshots/config-dialog.png)
 
 ## 配置说明
 
@@ -280,8 +307,6 @@ pnpm kill:all
 | POST | `/api/tokens/acquire` | 获取可用 Token |
 | POST | `/api/tokens/release` | 释放 Token |
 | GET | `/api/tokens/stats` | Token 使用统计 |
-| GET | `/api/tokens/{token_id}/quota` | 查询额度 |
-| POST | `/api/tokens/{token_id}/quota` | 刷新额度估算 |
 | POST | `/api/tokens/{token_id}/refresh` | 刷新 Token |
 
 ### 账号与日志

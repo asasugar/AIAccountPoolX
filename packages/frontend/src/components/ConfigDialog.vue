@@ -21,7 +21,7 @@
 
       <el-form-item label="当前预设">
         <div class="flex gap-2 w-full">
-          <el-select v-model="form.active_email_preset" @change="onPresetChange" class="flex-1">
+          <el-select v-model="form.active_email_preset" @change="onPresetChange">
             <el-option
               v-for="(p, i) in form.email_presets"
               :key="i"

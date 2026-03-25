@@ -78,14 +78,14 @@
           <el-option label="全部" value="" />
           <el-option v-for="p in store.platforms" :key="p.id" :label="p.name" :value="p.id" />
         </el-select>
+        <el-select v-model="filterSyncedStatus" size="small" placeholder="同步状态" clearable @change="handleFilterChange">
+          <el-option label="已同步" value="true" />
+          <el-option label="待同步" value="false" />
+        </el-select>
         <el-select v-model="filterNewApiStatus" size="small" placeholder="NewAPI状态" clearable @change="handleFilterChange">
           <el-option label="已启用" value="1" />
           <el-option label="已禁用" value="2" />
           <el-option label="自动禁用" value="3" />
-        </el-select>
-        <el-select v-model="filterSyncedStatus" size="small" placeholder="同步状态" clearable @change="handleFilterChange">
-          <el-option label="已同步" value="true" />
-          <el-option label="待同步" value="false" />
         </el-select>
         <el-input v-model="searchQuery" size="small" placeholder="搜索邮箱..." clearable @input="debouncedSearch">
           <template #prefix><el-icon><Search /></el-icon></template>
@@ -127,12 +127,22 @@
         <el-table-column prop="email" label="邮箱" min-width="140" show-overflow-tooltip>
           <template #default="{ row }">
             <div>
-              <div class="text-slate-200 font-medium text-xs">{{ row.email }}</div>
+              <div class="flex items-center gap-1">
+                <div class="text-slate-200 font-medium text-xs truncate">{{ row.email }}</div>
+                <el-tooltip v-if="row.email" content="复制邮箱" placement="top">
+                  <button
+                    @click="copyText(row.email)"
+                    class="shrink-0 w-5 h-5 rounded hover:bg-sky-500/20 flex items-center justify-center text-sky-500/60 hover:text-sky-400 transition-colors"
+                  >
+                    <el-icon :size="12"><CopyDocument /></el-icon>
+                  </button>
+                </el-tooltip>
+              </div>
               <div v-if="row.first_name" class="text-slate-500 text-[10px] mt-0.5">{{ row.first_name }}{{ row.last_name ? ' ' + row.last_name : '' }}</div>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="同步状态" width="110" align="center">
+        <el-table-column label="同步状态" width="130" align="center">
           <template #default="{ row }">
             <div class="flex flex-col items-center gap-1">
               <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium"
@@ -140,7 +150,12 @@
                 <span class="w-1.5 h-1.5 rounded-full" :class="row.synced_to_newapi ? 'bg-emerald-400' : 'bg-slate-500'"></span>
                 {{ row.synced_to_newapi ? '已同步' : 'Token刷新，待同步' }}
               </span>
-              <span v-if="row.newApiChannelId != null" class="text-[10px] text-slate-500">渠道 #{{ row.newApiChannelId }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="NewAPI状态" width="130" align="center">
+          <template #default="{ row }">
+            <div class="flex flex-col items-center gap-1">
               <span
                 v-if="row.newApiChannelId != null && row.newApiChannelStatus != null"
                 class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium"
@@ -156,9 +171,25 @@
                 </el-tooltip>
                 <span v-else>{{ getNewApiChannelStatusText(row.newApiChannelStatus) }}</span>
               </span>
-              <span v-if="row.account_status && row.account_status !== 'active'" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium" :class="getAccountStatusClass(row.account_status)">
-                {{ getAccountStatusText(row.account_status) }}
-              </span>
+              <span v-else class="text-[10px] text-slate-500">-</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="渠道" width="170" align="center">
+          <template #default="{ row }">
+            <div class="flex flex-col items-center gap-1">
+              <template v-if="row.newApiChannelIds && row.newApiChannelIds.length">
+                <div class="flex flex-wrap justify-center gap-1">
+                  <span
+                    v-for="cid in row.newApiChannelIds"
+                    :key="String(cid)"
+                    class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-sky-500/10 text-sky-300"
+                  >
+                    #{{ cid }}
+                  </span>
+                </div>
+              </template>
+              <span v-else class="text-[10px] text-slate-500">-</span>
             </div>
           </template>
         </el-table-column>
@@ -297,6 +328,7 @@ interface Token {
   username: string | null
   account_status: string | null
   newApiChannelId?: number | null
+  newApiChannelIds?: Array<number | string>
   newApiChannelStatus?: number | string | null
   newApiChannelOtherInfo?: unknown
 }
@@ -639,20 +671,6 @@ async function handleExport(platform: string) {
     URL.revokeObjectURL(url)
     ElMessage.success('Export successful')
   } catch {}
-}
-
-function getAccountStatusClass(status: string): string {
-  if (status === 'banned') return 'bg-rose-500/10 text-rose-400'
-  if (status === 'unverified') return 'bg-yellow-500/10 text-yellow-400'
-  if (status === 'active') return 'bg-sky-500/10 text-sky-400'
-  return 'bg-slate-500/10 text-slate-400'
-}
-
-function getAccountStatusText(status: string): string {
-  if (status === 'banned') return '已封禁'
-  if (status === 'unverified') return '未验证'
-  if (status === 'active') return '正常'
-  return status
 }
 
 function getNewApiChannelStatusText(status: number | string | null | undefined): string {

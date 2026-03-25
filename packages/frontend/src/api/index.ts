@@ -55,10 +55,6 @@ export const tokenApi = {
     api.post('/tokens/release', { token_id: tokenId, success, platform }),
   stats: (platform = '') =>
     api.get('/tokens/stats', { params: { platform } }),
-  getQuota: (id: string, platform = '') =>
-    api.get(`/tokens/${id}/quota`, { params: { platform } }),
-  refreshQuota: (id: string, platform = '') =>
-    api.post(`/tokens/${id}/quota`, null, { params: { platform } }),
   refreshToken: (id: string, platform = '') =>
     api.post(`/tokens/${id}/refresh`, null, { params: { platform } }),
   batchDelete: (ids: string[], platform = '') =>
