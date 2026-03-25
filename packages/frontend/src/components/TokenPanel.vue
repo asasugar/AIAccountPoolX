@@ -107,7 +107,15 @@
                 class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium"
                 :class="getNewApiChannelStatusClass(row.newApiChannelStatus)"
               >
-                {{ getNewApiChannelStatusText(row.newApiChannelStatus) }}
+                <el-tooltip
+                  v-if="row.newApiChannelOtherInfo != null && String(row.newApiChannelOtherInfo).trim() !== ''"
+                  :content="getChannelOtherInfoText(row.newApiChannelOtherInfo)"
+                  placement="top"
+                  :show-after="200"
+                >
+                  <span>{{ getNewApiChannelStatusText(row.newApiChannelStatus) }}</span>
+                </el-tooltip>
+                <span v-else>{{ getNewApiChannelStatusText(row.newApiChannelStatus) }}</span>
               </span>
               <span v-if="row.account_status && row.account_status !== 'active'" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium" :class="getAccountStatusClass(row.account_status)">
                 {{ getAccountStatusText(row.account_status) }}
@@ -270,6 +278,7 @@ interface Token {
   quota?: { total: number; used: number; remaining: number; plan_type: string }
   newApiChannelId?: number | null
   newApiChannelStatus?: number | string | null
+  newApiChannelOtherInfo?: unknown
 }
 
 const store = useAppStore()
@@ -553,12 +562,23 @@ function getAccountStatusText(status: string): string {
 function getNewApiChannelStatusText(status: number | string | null | undefined): string {
   if (String(status) === '1') return '已启用'
   if (String(status) === '2') return '已禁用'
+  if (String(status) === '3') return '自动禁用'
   return `状态 ${status ?? '-'}`
 }
 
 function getNewApiChannelStatusClass(status: number | string | null | undefined): string {
   if (String(status) === '1') return 'bg-emerald-500/10 text-emerald-400'
   if (String(status) === '2') return 'bg-rose-500/10 text-rose-400'
+  if (String(status) === '3') return 'bg-amber-500/10 text-amber-400'
   return 'bg-slate-500/10 text-slate-400'
+}
+
+function getChannelOtherInfoText(otherInfo: unknown): string {
+  if (typeof otherInfo === 'string') return otherInfo
+  try {
+    return JSON.stringify(otherInfo)
+  } catch {
+    return String(otherInfo ?? '')
+  }
 }
 </script>

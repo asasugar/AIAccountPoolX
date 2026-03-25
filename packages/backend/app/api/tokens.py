@@ -28,6 +28,7 @@ def _build_email_channel_map(channels: list[dict]) -> dict[str, dict]:
         email_to_channel[name] = {
             "id": channel.get("id"),
             "status": channel.get("status"),
+            "other_info": channel.get("other_info"),
         }
     return email_to_channel
 
@@ -53,10 +54,12 @@ async def list_tokens(
             channel = email_to_channel.get((it.get("email") or "").strip()) or {}
             it["newApiChannelId"] = channel.get("id")
             it["newApiChannelStatus"] = channel.get("status")
+            it["newApiChannelOtherInfo"] = channel.get("other_info")
     else:
         for it in items:
             it.setdefault("newApiChannelId", None)
             it.setdefault("newApiChannelStatus", None)
+            it.setdefault("newApiChannelOtherInfo", None)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
