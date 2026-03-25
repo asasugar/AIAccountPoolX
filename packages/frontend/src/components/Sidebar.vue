@@ -65,8 +65,8 @@
           任务控制
         </div>
 
-        <div class="grid grid-cols-4 gap-3 mb-3">
-          <div>
+        <div class="grid grid-cols-2 gap-3 mb-3">
+          <div class="rounded-xl border border-slate-700/50 bg-slate-900/35 p-2.5">
             <label class="text-[10px] font-medium text-slate-400 mb-1.5 block">Count (0=Inf)</label>
             <el-input-number
               v-model="taskCount"
@@ -76,7 +76,7 @@
               class="!w-full custom-input-number"
             />
           </div>
-          <div>
+          <div class="rounded-xl border border-slate-700/50 bg-slate-900/35 p-2.5">
             <label class="text-[10px] font-medium text-slate-400 mb-1.5 block">
               {{ taskMode === 'parallel' ? '统一间隔(秒)' : '默认间隔(秒)' }}
             </label>
@@ -88,7 +88,7 @@
               class="!w-full custom-input-number"
             />
           </div>
-          <div>
+          <div class="rounded-xl border border-slate-700/50 bg-slate-900/35 p-2.5">
             <label class="text-[10px] font-medium text-slate-400 mb-1.5 block">并发</label>
             <el-input-number
               v-model="taskConcurrency"
@@ -98,9 +98,9 @@
               class="!w-full custom-input-number"
             />
           </div>
-          <div>
+          <div class="rounded-xl border border-slate-700/50 bg-slate-900/35 p-2.5">
             <label class="text-[10px] font-medium text-slate-400 mb-1.5 block">调度模式</label>
-            <el-select v-model="taskMode" size="small" class="!w-full">
+            <el-select v-model="taskMode" size="small" class="!w-full custom-select">
               <el-option label="并行" value="parallel" />
               <el-option label="流水线" value="pipeline" />
             </el-select>
@@ -108,7 +108,7 @@
         </div>
 
         <div v-if="taskMode === 'pipeline'" class="grid grid-cols-2 gap-3 mb-4">
-          <div>
+          <div class="rounded-xl border border-slate-700/50 bg-slate-900/35 p-2.5">
             <label class="text-[10px] font-medium text-slate-400 mb-1.5 block">最小间隔</label>
             <el-input-number
               v-model="taskIntervalMin"
@@ -118,7 +118,7 @@
               class="!w-full custom-input-number"
             />
           </div>
-          <div>
+          <div class="rounded-xl border border-slate-700/50 bg-slate-900/35 p-2.5">
             <label class="text-[10px] font-medium text-slate-400 mb-1.5 block">最大间隔</label>
             <el-input-number
               v-model="taskIntervalMax"
@@ -132,7 +132,7 @@
 
         <button
           v-if="!currentEngine?.running"
-          class="w-full h-10 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-white text-sm font-semibold hover:shadow-lg hover:shadow-emerald-500/20 hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center gap-2"
+          class="w-full h-11 rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 text-white text-sm font-semibold tracking-wide hover:shadow-lg hover:shadow-emerald-500/20 hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center gap-2"
           @click="handleStart"
         >
           <el-icon><VideoPlay /></el-icon>
@@ -140,7 +140,7 @@
         </button>
         <button
           v-else
-          class="w-full h-10 rounded-xl bg-gradient-to-r from-rose-600 to-rose-500 text-white text-sm font-semibold hover:shadow-lg hover:shadow-rose-500/20 hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center gap-2"
+          class="w-full h-11 rounded-xl bg-gradient-to-r from-rose-600 to-rose-500 text-white text-sm font-semibold tracking-wide hover:shadow-lg hover:shadow-rose-500/20 hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center gap-2"
           @click="handleStop"
         >
           <el-icon><VideoPause /></el-icon>
@@ -323,5 +323,22 @@ async function handleStop() {
 .custom-input-number .el-input-number__increase:hover {
   color: #6366f1 !important;
   background-color: rgba(99, 102, 241, 0.1) !important;
+}
+
+.custom-select .el-select__wrapper {
+  min-height: 32px !important;
+  background-color: rgba(30, 41, 59, 0.5) !important;
+  box-shadow: none !important;
+  border: 1px solid rgba(51, 65, 85, 0.5) !important;
+  border-radius: 8px !important;
+}
+.custom-select .el-select__wrapper:hover,
+.custom-select .el-select__wrapper.is-focused {
+  border-color: rgba(99, 102, 241, 0.5) !important;
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2) !important;
+}
+.custom-select .el-select__selected-item {
+  color: #e2e8f0 !important;
+  font-size: 12px !important;
 }
 </style>
