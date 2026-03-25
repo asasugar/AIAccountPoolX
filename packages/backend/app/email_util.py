@@ -4,6 +4,7 @@ import random
 import re
 import time
 from datetime import datetime, timezone
+from email.header import decode_header
 from typing import Optional, Any
 
 import httpx
@@ -30,6 +31,16 @@ from .log_manager import log_manager as log
 
 OPENAI_OTP_SUBJECT = "Your ChatGPT code"
 OTP_CODE_RE = re.compile(r"\b(\d{6})\b")
+OTP_SEMANTIC_CODE_RE = re.compile(
+    r"(?:code|verification|one[-\s]?time|otp|验证码)[^\d]{0,32}\b(\d{6})\b",
+    re.IGNORECASE,
+)
+OPENAI_EMAIL_SENDERS = (
+    "openai",
+    "@openai.com",
+    "@account.openai.com",
+    "no-reply",
+)
 IMAP_FOLDERS = ("INBOX", "Junk", "&V4NXPpCuTvY-")
 OUTLOOK_FOLDERS = ("INBOX", "Junk")
 RECIPIENT_HEADER_NAMES = (
@@ -65,23 +76,77 @@ def _header_get(msg, name: str):
     return None
 
 
+def _decode_mime_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        value = value.decode(errors="replace")
+    text = str(value)
+    try:
+        parts = decode_header(text)
+    except Exception:
+        return text
+    decoded_parts = []
+    for part, charset in parts:
+        if isinstance(part, bytes):
+            try:
+                decoded_parts.append(part.decode(charset or "utf-8", errors="replace"))
+            except Exception:
+                decoded_parts.append(part.decode(errors="replace"))
+        else:
+            decoded_parts.append(str(part))
+    return "".join(decoded_parts)
+
+
+def _header_values_to_texts(values: Any) -> list[str]:
+    if values is None:
+        return []
+    if isinstance(values, (list, tuple, set)):
+        return [_decode_mime_value(v) for v in values if v is not None]
+    return [_decode_mime_value(values)]
+
+
+def _message_sender_lower(msg: MailMessage) -> str:
+    sender = _decode_mime_value(getattr(msg, "from_", "") or "")
+    if sender:
+        return sender.lower()
+    header_from = _header_get(msg, "from")
+    header_values = _header_values_to_texts(header_from)
+    return " ".join(header_values).lower() if header_values else ""
+
+
+def _is_openai_sender(sender_text: str) -> bool:
+    sender_lower = (sender_text or "").lower()
+    if not sender_lower:
+        return False
+    for sender in OPENAI_EMAIL_SENDERS:
+        if sender.startswith("@") or sender.startswith("."):
+            if sender in sender_lower:
+                return True
+        elif sender in sender_lower:
+            return True
+    return False
+
+
+def _extract_otp_from_text(text: str) -> Optional[str]:
+    match = OTP_SEMANTIC_CODE_RE.search(text) or OTP_CODE_RE.search(text)
+    return match.group(1) if match else None
+
+
 def _recipient_matches(target_lower: str, msg) -> bool:
     if msg.to:
         local_target = target_lower.split("@")[0] if "@" in target_lower else ""
         for t in msg.to:
-            t_lower = (t or "").lower()
+            t_lower = _decode_mime_value(t).lower()
             if target_lower in t_lower:
                 return True
             if local_target and ("+" in t_lower and local_target in t_lower):
                 return True
     for header_name in RECIPIENT_HEADER_NAMES:
         vals = _header_get(msg, header_name)
-        if vals and isinstance(vals, (list, tuple)):
-            for v in vals:
-                if v and target_lower in str(v).lower():
-                    return True
-        elif vals and isinstance(vals, str) and target_lower in vals.lower():
-            return True
+        for value in _header_values_to_texts(vals):
+            if target_lower in value.lower():
+                return True
     body_check = msg.text or msg.html or ""
     if target_lower in body_check.lower():
         return True
@@ -93,9 +158,10 @@ def _is_outlook(imap_host: str) -> bool:
 
 
 def _extract_otp_code(msg: MailMessage) -> Optional[str]:
+    subject = _decode_mime_value(getattr(msg, "subject", "") or "")
     body = msg.text or msg.html or ""
-    match = OTP_CODE_RE.search(body) or OTP_CODE_RE.search(msg.subject or "")
-    return match.group(1) if match else None
+    content = "\n".join([subject, body])
+    return _extract_otp_from_text(content)
 
 
 def _parse_tempmail_timestamp(value: Any) -> Optional[float]:
@@ -213,11 +279,10 @@ async def get_verification_code_tempmail(
                 body = str(msg.get("body", ""))
                 html = str(msg.get("html") or "")
                 content = "\n".join([sender, subject, body, html])
-                if "openai" not in sender and "openai" not in content.lower():
+                if not _is_openai_sender(sender) and "openai" not in content.lower():
                     continue
-                match = OTP_CODE_RE.search(content)
-                if match:
-                    code = match.group(1)
+                code = _extract_otp_from_text(content)
+                if code:
                     log.success(f"[TEMPMAIL] 获取到验证码: {code}")
                     return code
         except Exception as e:
@@ -254,45 +319,30 @@ def _fetch_outlook_messages_by_queries(
     folder: str = "INBOX",
     limit: int = 5,
 ):
-    """优先按目标邮箱搜索 Outlook 邮件，失败时再回退到最近邮件。"""
+    """拉取 Outlook 未读邮件（最新优先）。"""
     try:
         conn.select(folder)
     except Exception:
         return []
 
-    searches = [
-        ("TO", target_email, "SUBJECT", OPENAI_OTP_SUBJECT),
-        ("TO", target_email, "FROM", "openai"),
-        ("TO", target_email),
-        ("SUBJECT", OPENAI_OTP_SUBJECT, "FROM", "openai"),
-        ("ALL",),
-    ]
-
     messages = []
-    seen_uids = set()
-    for criteria in searches:
+    try:
+        _, data = conn.search(None, "UNSEEN")
+    except Exception:
+        return []
+    uids = data[0].split() if data and data[0] else []
+    uids = uids[-limit:] if len(uids) > limit else uids
+    for uid in reversed(uids):
+        uid_text = uid.decode() if isinstance(uid, bytes) else str(uid)
         try:
-            _, data = conn.search(None, *criteria)
+            _, msg_data = conn.fetch(uid, "(BODY.PEEK[])")
+            if msg_data and msg_data[0]:
+                raw = msg_data[0][1]
+                msg = MailMessage.from_bytes(raw)
+                msg._uid = uid_text
+                messages.append(msg)
         except Exception:
             continue
-        uids = data[0].split() if data and data[0] else []
-        uids = uids[-limit:] if len(uids) > limit else uids
-        for uid in reversed(uids):
-            uid_text = uid.decode() if isinstance(uid, bytes) else str(uid)
-            if uid_text in seen_uids:
-                continue
-            try:
-                _, msg_data = conn.fetch(uid, "(RFC822)")
-                if msg_data and msg_data[0]:
-                    raw = msg_data[0][1]
-                    msg = MailMessage.from_bytes(raw)
-                    msg._uid = uid_text
-                    messages.append(msg)
-                    seen_uids.add(uid_text)
-            except Exception:
-                continue
-        if messages:
-            break
     return messages
 
 
@@ -301,40 +351,18 @@ def _fetch_mailbox_messages_by_queries(
     target_email: str,
     limit: int = 5,
 ):
-    """优先按目标邮箱搜索 IMAP 邮件，减少并发场景下无关验证码干扰。"""
-    queries = [
-        AND(to=target_email, subject=OPENAI_OTP_SUBJECT),
-        AND(to=target_email, from_="openai"),
-        AND(to=target_email),
-        AND(subject=OPENAI_OTP_SUBJECT, from_="openai"),
-        AND(all=True),
-    ]
-
-    messages = []
-    seen_uids = set()
-    for criteria in queries:
-        try:
-            fetched = list(
-                mailbox.fetch(
-                    criteria=criteria,
-                    limit=limit,
-                    reverse=True,
-                    mark_seen=False,
-                )
+    """拉取 IMAP 未读邮件（最新优先）。"""
+    try:
+        return list(
+            mailbox.fetch(
+                criteria=AND(seen=False),
+                limit=limit,
+                reverse=True,
+                mark_seen=False,
             )
-        except Exception:
-            continue
-
-        for msg in fetched:
-            uid = getattr(msg, "uid", None)
-            if uid and uid in seen_uids:
-                continue
-            if uid:
-                seen_uids.add(uid)
-            messages.append(msg)
-        if messages:
-            break
-    return messages
+        )
+    except Exception:
+        return []
 
 
 def _sort_and_dedupe_messages(msgs: list[MailMessage]) -> list[MailMessage]:
@@ -409,6 +437,7 @@ async def get_verification_code(email: str, imap_host: str, imap_port: int,
     use_oauth = _is_outlook(imap_host) and outlook_client_id and outlook_refresh_token
     fetch_limit = 30
     max_mail_age = max(300, timeout * 4)
+    min_mail_timestamp = (otp_sent_at - TEMPMAIL_OTP_TOLERANCE_SECONDS) if otp_sent_at else None
     poll_count = 0
 
     while time.time() - start < timeout:
@@ -451,12 +480,16 @@ async def get_verification_code(email: str, imap_host: str, imap_port: int,
                 recipient_match_count = 0
 
                 for msg in msgs:
-                    if msg.from_ and "openai" not in msg.from_.lower():
+                    sender_lower = _message_sender_lower(msg)
+                    if not _is_openai_sender(sender_lower):
                         continue
                     openai_count += 1
 
-                    age = time.time() - msg.date.timestamp()
+                    msg_timestamp = msg.date.timestamp()
+                    age = time.time() - msg_timestamp
                     if age > max_mail_age:
+                        continue
+                    if min_mail_timestamp is not None and msg_timestamp <= min_mail_timestamp:
                         continue
                     if not _recipient_matches(email_lower, msg):
                         continue
@@ -469,11 +502,9 @@ async def get_verification_code(email: str, imap_host: str, imap_port: int,
                         log.success(f"验证码: {found_code} (邮件时间: {msg.date})")
                         try:
                             if use_oauth:
-                                conn.store(msg._uid.encode(), "+FLAGS", "\\Deleted")
-                                conn.expunge()
+                                conn.store(str(msg._uid), "+FLAGS", "\\Seen")
                             else:
-                                mailbox.delete(msg.uid)
-                                mailbox.client.expunge()
+                                mailbox.client.uid("STORE", str(msg.uid), "+FLAGS", "(\\Seen)")
                         except Exception:
                             pass
                         break

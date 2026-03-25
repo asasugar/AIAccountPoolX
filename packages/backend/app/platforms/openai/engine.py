@@ -76,12 +76,15 @@ class OpenAIEngine(BaseEngine):
 
     def __init__(self):
         super().__init__()
+        # 记录最近一次注册产生的账号信息，便于外部查询或排障
         self._last_registered_email: Optional[str] = None
         self._last_registered_password: Optional[str] = None
+        # 并发轮次分配锁，确保多 worker 不会拿到重复轮次
         self._round_lock = asyncio.Lock()
         self._next_round_index = 0
 
     def get_config_fields(self) -> list[dict]:
+        # Web 配置页展示字段
         return [
             {"key": "domain", "label": "邮箱域名", "type": "text", "required": True},
             {"key": "imap_host", "label": "IMAP 主机", "type": "text", "required": True},
@@ -93,6 +96,7 @@ class OpenAIEngine(BaseEngine):
         ]
 
     def get_default_config(self) -> dict:
+        # 引擎默认配置（可被配置文件覆盖）
         return {
             "domain": "",
             "imap_host": "",
@@ -131,7 +135,7 @@ class OpenAIEngine(BaseEngine):
                     log.info(f"[OpenAI] 账号已存在，跳过保存: {email}")
                     return
 
-                # 创建新账号记录
+                # 创建新账号记录（当前流程为无密码模式）
                 account = Account(
                     platform="openai",
                     email=email,
@@ -192,6 +196,7 @@ class OpenAIEngine(BaseEngine):
         log.error(f"{prefix}: {cls._response_context(resp, body_limit=body_limit)}")
 
     async def _claim_round(self, count: int) -> Optional[int]:
+        # 为 worker 申请一个新的执行轮次；count=0 表示无限轮次
         async with self._round_lock:
             if self._stop_event.is_set():
                 return None
@@ -202,15 +207,18 @@ class OpenAIEngine(BaseEngine):
             return self._next_round_index
 
     async def _has_more_rounds(self, count: int) -> bool:
+        # 判断有限任务模式下是否还有剩余轮次
         if count == 0:
             return True
         async with self._round_lock:
             return self._next_round_index < count
 
     async def _sleep_with_stop(self, seconds: int) -> None:
+        # 可中断等待：停机时提前结束 sleep
         await self._wait_for_stop_or_timeout(seconds)
 
     async def _run_round(self, cfg: dict, round_no: int, worker_id: int) -> None:
+        # 每一轮独立解析代理，避免固定代理连续失败影响全局
         proxy = await self._resolve_proxy(cfg)
 
         try:
@@ -228,6 +236,7 @@ class OpenAIEngine(BaseEngine):
             self.fail_count += 1
 
     async def _resolve_proxy(self, cfg: dict, preferred_proxy: Optional[str] = None) -> Optional[str]:
+        # 代理优先级：显式传入 > 代理池 > 配置文件静态代理
         if preferred_proxy:
             return preferred_proxy
         proxy = await proxy_pool.get_proxy()
@@ -236,6 +245,7 @@ class OpenAIEngine(BaseEngine):
         return cfg.get("proxy", None)
 
     def _build_transport(self, proxy: Optional[str]) -> tuple[dict, Optional[AsyncProxyTransport]]:
+        # 根据代理协议构建 httpx 传输参数
         transport_kwargs = {}
         socks_transport = None
         if not proxy:
@@ -245,13 +255,16 @@ class OpenAIEngine(BaseEngine):
         if proxy.startswith(("socks5://", "socks4://")):
             if AsyncProxyTransport is None:
                 raise RuntimeError("使用 SOCKS 代理需安装: pip install httpx-socks[asyncio]")
+            # SOCKS 走自定义 transport
             socks_transport = AsyncProxyTransport.from_url(proxy)
         else:
+            # HTTP/HTTPS 走 httpx 原生 proxy 参数
             transport_kwargs["proxy"] = proxy
         return transport_kwargs, socks_transport
 
     @staticmethod
     def _apply_socks_transport(client_kwargs: dict, socks_transport: Optional[AsyncProxyTransport]) -> dict:
+        # 仅在 SOCKS 模式下注入 transport，避免与常规代理参数冲突
         if socks_transport is None:
             return client_kwargs
         updated_kwargs = dict(client_kwargs)
@@ -260,6 +273,7 @@ class OpenAIEngine(BaseEngine):
         return updated_kwargs
 
     async def _fetch_real_ip(self, transport_kwargs: dict, socks_transport: Optional[AsyncProxyTransport]) -> str:
+        # 用多种 IP 查询端点确认当前出口 IP，便于排查代理生效情况
         try:
             ip_client_kw = self._apply_socks_transport(
                 dict(timeout=5.0, **transport_kwargs),
@@ -287,12 +301,14 @@ class OpenAIEngine(BaseEngine):
         on_retry_message,
         sleep_seconds,
     ):
+        # 通用异步重试器：仅捕获指定异常类型，达到最大次数后抛出
         for attempt in range(attempts):
             try:
                 return await request_fn()
             except retry_exceptions as e:
                 if attempt >= attempts - 1:
                     raise
+                # 失败后按调用方定义的退避时间等待，再继续重试
                 log.info(on_retry_message(attempt, e))
                 await asyncio.sleep(sleep_seconds(attempt))
 
@@ -303,34 +319,29 @@ class OpenAIEngine(BaseEngine):
         tempmail_token: str = "",
         otp_sent_at: Optional[float] = None,
     ) -> Optional[str]:
-        if await self._wait_for_stop_or_timeout(10):
+        # 这里不再做外层多轮等待，直接交给 email_util 内部轮询到超时
+        if self._stop_event.is_set():
             log.info("[OpenAI] 任务已停止")
             return None
-        for retry in range(10):
-            if self._stop_event.is_set():
-                log.info("[OpenAI] 任务已停止")
-                return None
-            otp = await get_verification_code(
-                email,
-                cfg["imap_host"],
-                cfg["imap_port"],
-                cfg["imap_user"],
-                cfg["imap_pass"],
-                outlook_client_id=cfg.get("outlook_client_id", ""),
-                outlook_refresh_token=cfg.get("outlook_refresh_token", ""),
-                stop_event=self._stop_event,
-                email_type=cfg.get("email_type", "imap"),
-                tempmail_token=tempmail_token,
-                tempmail_base_url=cfg.get("tempmail_base_url", "https://api.tempmail.lol/v2"),
-                otp_sent_at=otp_sent_at,
-            )
-            if otp:
-                log.success(f"[OpenAI] 获取到验证码: {otp}")
-                return otp
-            log.info(f"[OpenAI] 等待验证码... (第 {retry + 1} 次)")
-            if await self._wait_for_stop_or_timeout(10):
-                log.info("[OpenAI] 任务已停止")
-                return None
+        otp = await get_verification_code(
+            email,
+            cfg["imap_host"],
+            cfg["imap_port"],
+            cfg["imap_user"],
+            cfg["imap_pass"],
+            timeout=int(cfg.get("email_otp_timeout", 120)),
+            outlook_client_id=cfg.get("outlook_client_id", ""),
+            outlook_refresh_token=cfg.get("outlook_refresh_token", ""),
+            stop_event=self._stop_event,
+            email_type=cfg.get("email_type", "imap"),
+            tempmail_token=tempmail_token,
+            tempmail_base_url=cfg.get("tempmail_base_url", "https://api.tempmail.lol/v2"),
+            otp_sent_at=otp_sent_at,
+        )
+        if otp:
+            # 只要拿到验证码就立刻返回给后续校验步骤
+            log.success(f"[OpenAI] 获取到验证码: {otp}")
+            return otp
         return None
 
     @staticmethod
@@ -349,6 +360,7 @@ class OpenAIEngine(BaseEngine):
         return params.get("code", [None])[0], params.get("state", [None])[0]
 
     async def _follow_redirect_chain_for_callback(self, client: httpx.AsyncClient, url_builder, continue_url: str) -> Optional[str]:
+        # 手动跟踪有限次重定向，直到捕获包含 code/state 的 callback URL
         current_url = continue_url
         for _ in range(6):
             resp = await client.get(url_builder(current_url), follow_redirects=False)
@@ -364,6 +376,7 @@ class OpenAIEngine(BaseEngine):
         return None
 
     async def _worker_loop(self, cfg: dict, count: int, interval: int, worker_id: int) -> None:
+        # worker 主循环：持续领取轮次 -> 执行 -> 按间隔进入下一轮
         while not self._stop_event.is_set():
             round_no = await self._claim_round(count)
             if round_no is None:
@@ -401,6 +414,7 @@ class OpenAIEngine(BaseEngine):
         )
 
         try:
+            # 按并发数启动多个 worker 并行执行
             workers = [
                 asyncio.create_task(self._worker_loop(cfg, count, interval, worker_id))
                 for worker_id in range(1, max(1, concurrency) + 1)
@@ -411,6 +425,7 @@ class OpenAIEngine(BaseEngine):
         except Exception as e:
             log.exception("[OpenAI] 引擎异常退出", e, include_traceback=True)
         finally:
+            # 无论成功失败都重置运行态
             self.running = False
             self.active_workers = 0
             log.info(f"[OpenAI] 任务结束 - 成功: {self.success_count}, 失败: {self.fail_count}")
@@ -424,6 +439,7 @@ class OpenAIEngine(BaseEngine):
         """单次注册 API"""
         cfg = get_config()
 
+        # 单次注册也复用批量流程的代理解析逻辑
         used_proxy = await self._resolve_proxy(cfg, proxy)
 
         resolved_email = email or generate_email(cfg)
@@ -497,6 +513,7 @@ class OpenAIEngine(BaseEngine):
         custom_email: Optional[str] = None,
         custom_password: Optional[str] = None,
     ) -> bool:
+        # 生成 OAuth PKCE 参数，后续 token 兑换时需要回填 verifier
         code_verifier, code_challenge = generate_pkce_codes()
         state = generate_state()
         auth_url = self._build_auth_url(code_challenge, state)
@@ -549,6 +566,7 @@ class OpenAIEngine(BaseEngine):
         if base_url:
             client_kwargs["base_url"] = base_url.rstrip("/") + "/"
 
+        # 当使用 gateway 时，将绝对 URL 映射为相对路径，统一走 base_url
         def _url(absolute_url: str) -> str:
             if base_url and absolute_url.startswith(AUTH_BASE):
                 return absolute_url[len(AUTH_BASE):].lstrip("/")
@@ -642,7 +660,7 @@ class OpenAIEngine(BaseEngine):
                     },
                 )
 
-                # Step 5: 获取邮箱验证码 (保持原有 IMAP 流程)
+                # Step 5: 获取邮箱验证码（IMAP/Tempmail 内部负责轮询与超时）
                 log.step("[OpenAI] Step 5: 等待邮箱验证码...")
                 otp = await self._wait_for_email_otp(
                     cfg,
