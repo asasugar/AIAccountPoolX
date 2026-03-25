@@ -56,11 +56,11 @@
       </div>
       <!-- 筛选栏 -->
       <div class="flex gap-2">
-        <el-select v-model="filterPlatform" size="small" class="w-28" placeholder="平台" clearable @change="fetchTokens">
+        <el-select v-model="filterPlatform" size="small" placeholder="平台" clearable @change="fetchTokens">
           <el-option label="全部" value="" />
           <el-option v-for="p in store.platforms" :key="p.id" :label="p.name" :value="p.id" />
         </el-select>
-        <el-input v-model="searchQuery" size="small" placeholder="搜索邮箱..." clearable @input="debouncedSearch" class="flex-1">
+        <el-input v-model="searchQuery" size="small" placeholder="搜索邮箱..." clearable @input="debouncedSearch">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
       </div>
