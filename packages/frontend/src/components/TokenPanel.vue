@@ -267,7 +267,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { Search, CopyDocument, Delete, More, Key, Upload, RefreshRight, VideoPlay, Remove } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { tokenApi, newapiApi } from '../api'
@@ -332,14 +332,37 @@ const tokenStats = computed(() => {
   return { active, total, today, rate }
 })
 
-let pollTimer: ReturnType<typeof setInterval>
+let pollTimer: ReturnType<typeof setInterval> | null = null
 let debounceTimer: ReturnType<typeof setTimeout>
 
 onMounted(() => {
   fetchTokens()
   fetchSyncStatus()
-  pollTimer = setInterval(fetchTokens, 10000)
 })
+
+const currentEngineRunning = computed(() =>
+  !!store.platforms.find(p => p.id === store.currentPlatform)?.running
+)
+
+function startPolling() {
+  if (pollTimer) return
+  pollTimer = setInterval(fetchTokens, 10000)
+}
+
+function stopPolling() {
+  if (!pollTimer) return
+  clearInterval(pollTimer)
+  pollTimer = null
+}
+
+watch(
+  () => currentEngineRunning.value,
+  (running) => {
+    if (running) startPolling()
+    else stopPolling()
+  },
+  { immediate: true }
+)
 
 async function fetchSyncStatus() {
   try {
@@ -418,7 +441,7 @@ function formatSyncTime(iso: string): string {
 }
 
 onUnmounted(() => {
-  clearInterval(pollTimer)
+  stopPolling()
 })
 
 async function fetchTokens() {

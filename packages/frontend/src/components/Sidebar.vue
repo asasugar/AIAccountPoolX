@@ -172,7 +172,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { VideoPlay, VideoPause, Setting, Operation, Grid } from '@element-plus/icons-vue'
 import { useAppStore } from '../stores/app'
 import ConfigDialog from './ConfigDialog.vue'
@@ -187,16 +187,35 @@ const currentEngine = computed(() =>
   store.platforms.find(p => p.id === store.currentPlatform)
 )
 
-let pollTimer: ReturnType<typeof setInterval>
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+function startPolling() {
+  if (pollTimer) return
+  pollTimer = setInterval(() => store.fetchStats(), 3000)
+}
+
+function stopPolling() {
+  if (!pollTimer) return
+  clearInterval(pollTimer)
+  pollTimer = null
+}
 
 onMounted(() => {
   store.fetchPlatforms()
   store.fetchStats()
-  pollTimer = setInterval(() => store.fetchStats(), 3000)
 })
 
+watch(
+  () => currentEngine.value?.running,
+  (running) => {
+    if (running) startPolling()
+    else stopPolling()
+  },
+  { immediate: true }
+)
+
 onUnmounted(() => {
-  clearInterval(pollTimer)
+  stopPolling()
 })
 
 async function handleStart() {
