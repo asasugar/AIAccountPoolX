@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 import json
 from datetime import datetime
@@ -265,53 +266,103 @@ async def sync_to_newapi():
         )
     tokens, _ = token_manager.list_tokens(platform="openai", page=1, page_size=10000, status="active")
     unsynced = [t for t in tokens if not t.get("synced_to_newapi")]
-    success_count = 0
-    fail_count = 0
-    errors = []
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        for t in unsynced:
-            account_name = t.get("first_name") or t.get("email", "")
-            now_str = datetime.now().strftime("%Y%m%d-%H:%M")
-            channel = {
-                "auto_ban": 1,
-                "name": t.get("email") or f"{now_str}-auto",
-                "type": NEWAPI_TYPE_OPENAI,
-                "key": json.dumps({"access_token": t.get("access_token", ""), "account_id": account_name}, ensure_ascii=False),
-                "base_url": DEFAULT_BASE_URL,
-                "models": DEFAULT_MODELS,
-                "multi_key_mode": "random",
-                "group": "default",
-                "groups": ["default"],
-                "priority": 0,
-                "weight": 0,
-            }
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {token}",
-                "New-Api-User": user_id,
-            }
-            try:
-                r = await client.post(
-                    f"{base_url}/api/channel/",
-                    json={"mode": "single", "channel": channel},
-                    headers=headers,
-                )
-                if r.is_success:
-                    success_count += 1
-                    with db.get_session() as session:
-                        row = session.query(Token).filter(Token.token_id == t["id"]).first()
-                        if row:
-                            row.synced_to_newapi = True
-                else:
-                    fail_count += 1
+    channels = await fetch_channels()
+    email_to_channel: dict[str, dict] = {}
+    for channel_item in channels:
+        name = str(channel_item.get("name", "")).strip()
+        if not name:
+            continue
+        email_to_channel[name] = {
+            "id": channel_item.get("id"),
+            "status": channel_item.get("status"),
+        }
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}",
+        "New-Api-User": user_id,
+    }
+    semaphore = asyncio.Semaphore(10)
+    success_ids: list[str] = []
+    errors: list[str] = []
+
+    async def sync_one(client: httpx.AsyncClient, t: dict) -> tuple[bool, str, str]:
+        account_name = t.get("first_name") or t.get("email", "")
+        now_str = datetime.now().strftime("%Y%m%d-%H:%M")
+        email = (t.get("email") or "").strip()
+        matched_channel = email_to_channel.get(email) or {}
+        matched_channel_id = matched_channel.get("id")
+        matched_channel_status = matched_channel.get("status")
+        channel = {
+            "auto_ban": 1,
+            "name": t.get("email") or f"{now_str}-auto",
+            "type": NEWAPI_TYPE_OPENAI,
+            "key": json.dumps({"access_token": t.get("access_token", ""), "account_id": account_name}, ensure_ascii=False),
+            "base_url": DEFAULT_BASE_URL,
+            "models": DEFAULT_MODELS,
+            "multi_key_mode": "random",
+            "group": "default",
+            "groups": ["default"],
+            "priority": 0,
+            "weight": 0,
+        }
+        token_id = t.get("id", "")
+        last_error = ""
+        async with semaphore:
+            for attempt in range(3):
+                try:
+                    if matched_channel_id is not None and matched_channel_status is not None:
+                        channel["id"] = matched_channel_id
+                        r = await client.put(
+                            f"{base_url}/api/channel/",
+                            json=channel,
+                            headers=headers,
+                        )
+                    else:
+                        r = await client.post(
+                            f"{base_url}/api/channel/",
+                            json={"mode": "single", "channel": channel},
+                            headers=headers,
+                        )
+                    if r.is_success:
+                        return True, token_id, ""
                     try:
                         err = r.json()
-                        errors.append(err.get("message", r.text)[:80])
+                        last_error = (err.get("message", r.text) or "")[:120]
                     except Exception:
-                        errors.append(r.text[:80])
-            except Exception as e:
-                fail_count += 1
-                errors.append(str(e)[:80])
+                        last_error = (r.text or "")[:120]
+                    if r.status_code in (429, 500, 502, 503, 504) and attempt < 2:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+                        continue
+                    return False, token_id, last_error
+                except Exception as e:
+                    last_error = str(e)[:120]
+                    if attempt < 2:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+                        continue
+                    return False, token_id, last_error
+        return False, token_id, last_error
+
+    timeout = httpx.Timeout(60.0, connect=10.0)
+    limits = httpx.Limits(max_keepalive_connections=50, max_connections=100)
+    async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
+        batch_size = 200
+        for i in range(0, len(unsynced), batch_size):
+            batch = unsynced[i:i + batch_size]
+            results = await asyncio.gather(*(sync_one(client, t) for t in batch))
+            for ok, token_id, err_msg in results:
+                if ok:
+                    success_ids.append(token_id)
+                else:
+                    errors.append(err_msg or "同步失败")
+
+    if success_ids:
+        with db.get_session() as session:
+            rows = session.query(Token).filter(Token.token_id.in_(success_ids)).all()
+            for row in rows:
+                row.synced_to_newapi = True
+
+    success_count = len(success_ids)
+    fail_count = len(unsynced) - success_count
     message = ""
     if errors:
         message = "; ".join(errors[:3])
