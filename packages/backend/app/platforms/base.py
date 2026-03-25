@@ -37,7 +37,7 @@ class BaseEngine(ABC):
             "active_workers": self.active_workers,
         }
 
-    async def start(self, count: int = 0, interval: int = 60, concurrency: int = 1):
+    async def start(self, count: int = 0, interval: int = 60, concurrency: int = 1, **kwargs):
         if self.running:
             return
         self._stop_event.clear()
@@ -45,7 +45,7 @@ class BaseEngine(ABC):
         self.current_round = 0
         self.concurrency = max(1, int(concurrency or 1))
         self.active_workers = 0
-        self._task = asyncio.create_task(self._run(count, interval, self.concurrency))
+        self._task = asyncio.create_task(self._run(count, interval, self.concurrency, **kwargs))
 
     async def stop(self):
         if not self.running:
@@ -75,7 +75,7 @@ class BaseEngine(ABC):
         self.current_round = 0
 
     @abstractmethod
-    async def _run(self, count: int, interval: int, concurrency: int = 1):
+    async def _run(self, count: int, interval: int, concurrency: int = 1, **kwargs):
         ...
 
     @abstractmethod

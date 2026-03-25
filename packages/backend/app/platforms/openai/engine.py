@@ -6,6 +6,7 @@ import string
 import time
 import traceback
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode, urljoin, urlparse, parse_qs
 
@@ -55,6 +56,7 @@ IP_CHECK_URLS = (
     "http://ifconfig.me/ip",
     "http://checkip.amazonaws.com",
 )
+REGISTRATION_EXECUTOR = ThreadPoolExecutor(max_workers=50)
 
 
 class OpenAIEngine(BaseEngine):
@@ -81,6 +83,7 @@ class OpenAIEngine(BaseEngine):
         self._last_registered_password: Optional[str] = None
         # 并发轮次分配锁，确保多 worker 不会拿到重复轮次
         self._round_lock = asyncio.Lock()
+        self._counter_lock = asyncio.Lock()
         self._next_round_index = 0
 
     def get_config_fields(self) -> list[dict]:
@@ -235,6 +238,121 @@ class OpenAIEngine(BaseEngine):
             log.exception(f"[OpenAI][Worker {worker_id}] 第 {round_no} 轮异常", e)
             self.fail_count += 1
 
+    def _run_sync_registration_task(self, cfg: dict, proxy: Optional[str]) -> bool:
+        try:
+            return asyncio.run(self._register_via_api(cfg, proxy))
+        except Exception as e:
+            log.exception("[OpenAI] 线程任务执行异常", e)
+            return False
+
+    async def run_registration_task(self, cfg: dict, round_no: int) -> None:
+        if self._stop_event.is_set():
+            return
+
+        proxy = await self._resolve_proxy(cfg)
+        loop = asyncio.get_running_loop()
+        ok = await loop.run_in_executor(
+            REGISTRATION_EXECUTOR,
+            self._run_sync_registration_task,
+            cfg,
+            proxy,
+        )
+        async with self._counter_lock:
+            self.current_round = round_no
+            if ok:
+                self.success_count += 1
+            else:
+                self.fail_count += 1
+        if proxy:
+            if ok:
+                proxy_pool.report_success(proxy)
+            else:
+                proxy_pool.report_failure(proxy)
+
+    async def run_batch_parallel(self, cfg: dict, count: int, concurrency: int) -> None:
+        semaphore = asyncio.Semaphore(max(1, concurrency))
+        total = count if count > 0 else 0
+        if total <= 0:
+            return
+
+        async def _one_task(round_no: int):
+            async with semaphore:
+                if self._stop_event.is_set():
+                    return
+                self.active_workers += 1
+                try:
+                    await self.run_registration_task(cfg, round_no)
+                finally:
+                    self.active_workers = max(0, self.active_workers - 1)
+
+        tasks = [asyncio.create_task(_one_task(i)) for i in range(1, total + 1)]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def run_batch_pipeline(
+        self,
+        cfg: dict,
+        count: int,
+        concurrency: int,
+        interval_min: int,
+        interval_max: int,
+    ) -> None:
+        semaphore = asyncio.Semaphore(max(1, concurrency))
+        tasks: list[asyncio.Task] = []
+        round_no = 0
+        min_interval = max(0, int(interval_min))
+        max_interval = max(min_interval, int(interval_max))
+
+        async def _pipeline_task(task_round: int):
+            self.active_workers += 1
+            try:
+                await self.run_registration_task(cfg, task_round)
+            finally:
+                self.active_workers = max(0, self.active_workers - 1)
+                semaphore.release()
+
+        while not self._stop_event.is_set():
+            if count > 0 and round_no >= count:
+                break
+            await semaphore.acquire()
+            if self._stop_event.is_set():
+                semaphore.release()
+                break
+            round_no += 1
+            tasks.append(asyncio.create_task(_pipeline_task(round_no)))
+            if max_interval > 0:
+                wait_seconds = random.randint(min_interval, max_interval)
+                if await self._wait_for_stop_or_timeout(wait_seconds):
+                    break
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def run_batch_registration(
+        self,
+        cfg: dict,
+        count: int,
+        concurrency: int,
+        mode: str,
+        interval_min: int,
+        interval_max: int,
+    ) -> None:
+        mode_text = str(mode or "parallel").lower()
+        if mode_text == "pipeline":
+            await self.run_batch_pipeline(
+                cfg=cfg,
+                count=count,
+                concurrency=concurrency,
+                interval_min=interval_min,
+                interval_max=interval_max,
+            )
+        else:
+            await self.run_batch_parallel(
+                cfg=cfg,
+                count=count,
+                concurrency=concurrency,
+            )
+
     async def _resolve_proxy(self, cfg: dict, preferred_proxy: Optional[str] = None) -> Optional[str]:
         # 代理优先级：显式传入 > 代理池 > 配置文件静态代理
         if preferred_proxy:
@@ -375,52 +493,56 @@ class OpenAIEngine(BaseEngine):
             current_url = next_url
         return None
 
-    async def _worker_loop(self, cfg: dict, count: int, interval: int, worker_id: int) -> None:
-        # worker 主循环：持续领取轮次 -> 执行 -> 按间隔进入下一轮
-        while not self._stop_event.is_set():
-            round_no = await self._claim_round(count)
-            if round_no is None:
-                return
-            if self._stop_event.is_set():
-                return
-
-            self.active_workers += 1
-            log.info(
-                f"[OpenAI][Worker {worker_id}] 开始第 {round_no}"
-                f"{f'/{count}' if count > 0 else ''} 轮注册"
-            )
-
-            try:
-                await self._run_round(cfg, round_no, worker_id)
-            finally:
-                self.active_workers = max(0, self.active_workers - 1)
-
-            if self._stop_event.is_set():
-                return
-            if interval > 0 and await self._has_more_rounds(count):
-                log.info(f"[OpenAI][Worker {worker_id}] 等待 {interval}s 后继续下一轮...")
-                await self._sleep_with_stop(interval)
-
-    async def _run(self, count: int, interval: int, concurrency: int = 1):
+    async def _run(
+        self,
+        count: int,
+        interval: int,
+        concurrency: int = 1,
+        mode: str = "parallel",
+        interval_min: int = 0,
+        interval_max: int = 0,
+        **kwargs,
+    ):
         """批量注册任务"""
         self.running = True
         cfg = get_config()
         self._next_round_index = 0
         self.active_workers = 0
+        self.current_round = 0
+
+        selected_mode = str(mode or "parallel").lower()
+        if selected_mode != "pipeline":
+            selected_mode = "parallel"
+
+        if selected_mode == "pipeline":
+            pipe_min = int(interval_min or 0)
+            pipe_max = int(interval_max or 0)
+            if pipe_max <= 0:
+                pipe_max = int(interval or 0)
+            if pipe_min <= 0:
+                pipe_min = min(pipe_max, int(interval or 0)) if pipe_max > 0 else 0
+        else:
+            pipe_min = 0
+            pipe_max = 0
+            if count == 0:
+                selected_mode = "pipeline"
+                pipe_min = max(0, int(interval or 0))
+                pipe_max = pipe_min
 
         log.info(
             f"[OpenAI] 批量注册启动: 共 {'无限' if count == 0 else count} 次, "
-            f"间隔 {interval}s, 并发 {concurrency}"
+            f"模式 {selected_mode}, 并发 {concurrency}"
         )
 
         try:
-            # 按并发数启动多个 worker 并行执行
-            workers = [
-                asyncio.create_task(self._worker_loop(cfg, count, interval, worker_id))
-                for worker_id in range(1, max(1, concurrency) + 1)
-            ]
-            if workers:
-                await asyncio.gather(*workers)
+            await self.run_batch_registration(
+                cfg=cfg,
+                count=count,
+                concurrency=max(1, int(concurrency or 1)),
+                mode=selected_mode,
+                interval_min=pipe_min,
+                interval_max=pipe_max,
+            )
 
         except Exception as e:
             log.exception("[OpenAI] 引擎异常退出", e, include_traceback=True)

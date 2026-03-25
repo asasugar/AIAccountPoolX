@@ -65,7 +65,7 @@
           任务控制
         </div>
 
-        <div class="grid grid-cols-3 gap-3 mb-4">
+        <div class="grid grid-cols-4 gap-3 mb-3">
           <div>
             <label class="text-[10px] font-medium text-slate-400 mb-1.5 block">Count (0=Inf)</label>
             <el-input-number
@@ -77,7 +77,9 @@
             />
           </div>
           <div>
-            <label class="text-[10px] font-medium text-slate-400 mb-1.5 block">间隔 (秒)</label>
+            <label class="text-[10px] font-medium text-slate-400 mb-1.5 block">
+              {{ taskMode === 'parallel' ? '统一间隔(秒)' : '默认间隔(秒)' }}
+            </label>
             <el-input-number
               v-model="taskInterval"
               :min="1"
@@ -91,6 +93,36 @@
             <el-input-number
               v-model="taskConcurrency"
               :min="1"
+              size="small"
+              controls-position="right"
+              class="!w-full custom-input-number"
+            />
+          </div>
+          <div>
+            <label class="text-[10px] font-medium text-slate-400 mb-1.5 block">调度模式</label>
+            <el-select v-model="taskMode" size="small" class="!w-full">
+              <el-option label="并行" value="parallel" />
+              <el-option label="流水线" value="pipeline" />
+            </el-select>
+          </div>
+        </div>
+
+        <div v-if="taskMode === 'pipeline'" class="grid grid-cols-2 gap-3 mb-4">
+          <div>
+            <label class="text-[10px] font-medium text-slate-400 mb-1.5 block">最小间隔</label>
+            <el-input-number
+              v-model="taskIntervalMin"
+              :min="0"
+              size="small"
+              controls-position="right"
+              class="!w-full custom-input-number"
+            />
+          </div>
+          <div>
+            <label class="text-[10px] font-medium text-slate-400 mb-1.5 block">最大间隔</label>
+            <el-input-number
+              v-model="taskIntervalMax"
+              :min="0"
               size="small"
               controls-position="right"
               class="!w-full custom-input-number"
@@ -190,6 +222,9 @@ const store = useAppStore()
 const taskCount = ref(0)
 const taskInterval = ref(60)
 const taskConcurrency = ref(1)
+const taskMode = ref<'parallel' | 'pipeline'>('parallel')
+const taskIntervalMin = ref(0)
+const taskIntervalMax = ref(0)
 const showConfig = ref(false)
 
 const currentEngine = computed(() =>
@@ -228,7 +263,16 @@ onUnmounted(() => {
 })
 
 async function handleStart() {
-  await store.startTask(taskCount.value, taskInterval.value, taskConcurrency.value)
+  const minVal = Math.max(0, taskIntervalMin.value)
+  const maxVal = Math.max(minVal, taskIntervalMax.value)
+  await store.startTask(
+    taskCount.value,
+    taskInterval.value,
+    taskConcurrency.value,
+    taskMode.value,
+    minVal,
+    maxVal
+  )
 }
 
 async function handleStop() {

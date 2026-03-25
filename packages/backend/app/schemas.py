@@ -26,6 +26,9 @@ class TaskStartRequest(BaseModel):
     count: int = DEFAULT_RUN_COUNT
     interval: int = DEFAULT_RUN_INTERVAL
     concurrency: int = 1
+    mode: str = "parallel"
+    interval_min: int = 0
+    interval_max: int = 0
 
 
 class TaskStatusResponse(BaseModel):

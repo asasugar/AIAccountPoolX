@@ -152,8 +152,23 @@ export const useAppStore = defineStore('app', () => {
     } catch {}
   }
 
-  async function startTask(count: number, interval: number, concurrency = 1) {
-    await taskApi.start(count, interval, concurrency, currentPlatform.value)
+  async function startTask(
+    count: number,
+    interval: number,
+    concurrency = 1,
+    mode: 'parallel' | 'pipeline' = 'parallel',
+    intervalMin = 0,
+    intervalMax = 0
+  ) {
+    await taskApi.start(
+      count,
+      interval,
+      concurrency,
+      currentPlatform.value,
+      mode,
+      intervalMin,
+      intervalMax
+    )
     await fetchStats()
   }
 

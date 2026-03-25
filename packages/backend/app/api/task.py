@@ -18,7 +18,14 @@ def _get_engine(platform: str = "openai"):
 @router.post("/start")
 async def start_task(req: TaskStartRequest, platform: str = "openai"):
     eng = _get_engine(platform)
-    await eng.start(count=req.count, interval=req.interval, concurrency=req.concurrency)
+    await eng.start(
+        count=req.count,
+        interval=req.interval,
+        concurrency=req.concurrency,
+        mode=req.mode,
+        interval_min=req.interval_min,
+        interval_max=req.interval_max,
+    )
     return {"ok": True, "message": f"[{eng.platform_name}] 任务已启动"}
 
 

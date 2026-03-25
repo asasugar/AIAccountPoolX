@@ -12,8 +12,20 @@ export const platformApi = {
 }
 
 export const taskApi = {
-  start: (count: number, interval: number, concurrency = 1, platform = 'openai') =>
-    api.post('/task/start', { count, interval, concurrency }, { params: { platform } }),
+  start: (
+    count: number,
+    interval: number,
+    concurrency = 1,
+    platform = 'openai',
+    mode: 'parallel' | 'pipeline' = 'parallel',
+    intervalMin = 0,
+    intervalMax = 0
+  ) =>
+    api.post(
+      '/task/start',
+      { count, interval, concurrency, mode, interval_min: intervalMin, interval_max: intervalMax },
+      { params: { platform } }
+    ),
   stop: (platform = 'openai') =>
     api.post('/task/stop', null, { params: { platform } }),
   status: (platform = 'openai') =>
