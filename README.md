@@ -166,9 +166,62 @@ pnpm dev:frontend
 - 前端：`http://localhost:3000`
 - 后端：`http://localhost:1455`
 
-## 界面截图
+## Docker Compose 一键部署（生产）
 
-以下截图由无头浏览器在本地运行项目页面后自动采集。
+### 前置要求
+
+- Docker 24+
+- Docker Compose v2（命令为 `docker compose`）
+- 建议启用 BuildKit（用于加速前端依赖层缓存）
+
+### 启动
+
+在仓库根目录执行：
+
+```bash
+docker compose up -d --build
+```
+
+启动后默认地址：
+
+- 前端（Nginx）：`http://localhost`
+- 后端 API：`http://localhost:1455`
+
+### 停止
+
+```bash
+docker compose down
+```
+
+如需同时删除持久化数据卷：
+
+```bash
+docker compose down -v
+```
+
+### 生产部署说明
+
+- `frontend` 使用多阶段构建，产物由 Nginx 提供静态服务
+- `/api` 与 `/auth` 由 Nginx 反向代理到 `backend:1455`
+- 后端配置文件路径通过环境变量 `AIACCOUNTPOOLX_CONFIG_PATH` 指向容器内 `/app/runtime/config.json`
+- 持久化卷：
+  - `backend-runtime`：保存 `config.json`
+  - `backend-data`：保存业务数据（如 SQLite 数据）
+  - `backend-logs`：保存日志
+- 两个服务都配置了 `restart: unless-stopped`，异常退出会自动重启
+
+### 健康检查
+
+- 后端：探测 `GET /api/health`
+- 前端：探测 Nginx 首页可访问性
+
+查看健康状态：
+
+```bash
+docker compose ps
+```
+
+## 界面截图
 
 ### 控制台总览
 

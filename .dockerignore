@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+.gitignore
+.DS_Store
+*.log
+*.pyc
+__pycache__
+*.sqlite
+*.db
+packages/backend/logs
+packages/backend/data
+packages/backend/config.json

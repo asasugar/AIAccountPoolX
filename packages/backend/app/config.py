@@ -9,7 +9,7 @@ from .config_utils import (
     relativize_paths,
 )
 
-CONFIG_PATH = os.path.join(BACKEND_DIR, "config.json")
+CONFIG_PATH = os.getenv("AIACCOUNTPOOLX_CONFIG_PATH", os.path.join(BACKEND_DIR, "config.json"))
 
 
 def normalize_config(

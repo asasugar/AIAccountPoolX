@@ -6,3 +6,5 @@ httpx
 httpx-socks[asyncio]
 pydantic
 sqlalchemy>=2.0
+boto3
+msal
