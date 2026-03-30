@@ -114,6 +114,10 @@ export const useAppStore = defineStore('app', () => {
     ) {
       void fetchStats()
     }
+
+    if(normalizedEntry.level === 'error' && normalizedEntry.message.includes('账户创建失败')) {
+      void fetchStats()
+    }
   }
 
   function clearLogs() {
