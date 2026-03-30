@@ -33,9 +33,6 @@
                 {{ currentEngine?.running ? '运行中' : '已停止' }}
               </span>
             </div>
-            <span v-if="currentEngine?.running" class="text-[10px] font-mono text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-full">
-              第 {{ currentEngine.current_round }}{{ currentEngine.total_rounds > 0 ? '/' + currentEngine.total_rounds : '' }} 轮
-            </span>
           </div>
 
           <!-- 统计数字 -->
