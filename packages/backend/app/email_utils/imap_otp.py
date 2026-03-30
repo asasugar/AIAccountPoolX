@@ -268,31 +268,33 @@ async def get_verification_code(
     max_mail_age = max(300, timeout * 4)
     min_mail_timestamp = (otp_sent_at - TEMPMAIL_OTP_TOLERANCE_SECONDS) if otp_sent_at else None
     min_timestamp_skew_seconds = 180
-    poll_count = 0
+    total_poll_count = 0
+    conn_poll_count = 0
     max_poll_rounds = 5
     imap_miss_rounds = 0
     force_reconnect_next_round = False
 
-    while time.time() - start < timeout and poll_count < max_poll_rounds:
+    while time.time() - start < timeout and total_poll_count < max_poll_rounds:
         if stop_event and stop_event.is_set():
             log.info("[IMAP] 任务已停止，中断验证码获取")
             return None
-        poll_count += 1
+        total_poll_count += 1
+        conn_poll_count += 1
         try:
             async with _imap_lock:
                 found_code = None
-                if poll_count >= 6:
+                if conn_poll_count >= 6:
                     unseen_fetch_limit = 60
                     all_fetch_limit = 40
                     include_secondary_folders = True
-                elif poll_count >= 3:
+                elif conn_poll_count >= 3:
                     unseen_fetch_limit = 30
                     all_fetch_limit = 20
-                    include_secondary_folders = (poll_count % 2 == 0)
+                    include_secondary_folders = (conn_poll_count % 2 == 0)
                 else:
                     unseen_fetch_limit = unseen_fetch_limit_base
                     all_fetch_limit = all_fetch_limit_base
-                    include_secondary_folders = (poll_count % 3 == 0)
+                    include_secondary_folders = (conn_poll_count % 3 == 0)
                 if use_oauth:
                     conn = get_outlook_conn(imap_user, outlook_client_id, outlook_refresh_token)
                     msgs = []
@@ -316,11 +318,14 @@ async def get_verification_code(
                         _imap_conn_key = None
                         _imap_folders_cache = None
                         log.info("[IMAP] 连续2轮未命中，重建连接")
+                        conn_poll_count = 1
+                        imap_miss_rounds = 0
                     force_reconnect_next_round = False
                     imap_conn_key = (imap_host, imap_port, imap_user, imap_pass)
                     if _imap_conn is None or _imap_conn_key != imap_conn_key:
-                        log.info("[IMAP] 建立连接前等待 5s")
-                        await asyncio.sleep(5)
+                        if total_poll_count == 1:
+                            log.info("[IMAP] 建立连接前等待 5s")
+                            await asyncio.sleep(5)
                     mailbox = get_mailbox(imap_host, imap_port, imap_user, imap_pass)
                     msgs = []
                     folder_key = (imap_host, imap_port, imap_user, imap_pass)
@@ -417,12 +422,12 @@ async def get_verification_code(
 
                 if not use_oauth:
                     imap_miss_rounds += 1
-                    if imap_miss_rounds % 2 == 0 and poll_count < max_poll_rounds:
+                    if imap_miss_rounds % 2 == 0 and total_poll_count < max_poll_rounds:
                         force_reconnect_next_round = True
 
                 elapsed = int(time.time() - start)
                 log.info(
-                    f"[IMAP] 第 {poll_count} 轮未命中验证码: "
+                    f"[IMAP] 第 {conn_poll_count} 轮未命中验证码: "
                     f"扫描 {scanned_count} 封, OpenAI 邮件 {openai_count} 封, 已等待 {elapsed}s"
                 )
 
@@ -432,10 +437,10 @@ async def get_verification_code(
             _imap_folders_cache = None
             _outlook_conn = None
 
-        if poll_count < max_poll_rounds:
+        if total_poll_count < max_poll_rounds:
             await asyncio.sleep(3)
 
-    if poll_count >= max_poll_rounds:
+    if total_poll_count >= max_poll_rounds:
         log.error(f"[IMAP] 已重试 {max_poll_rounds} 轮仍未获取到验证码")
 
     return None
