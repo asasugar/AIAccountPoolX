@@ -10,6 +10,7 @@ from .parsing import (
     extract_otp_code,
     looks_like_openai_otp_message,
     recipient_matches,
+    recipient_matches_full_email,
 )
 from .tempmail import TEMPMAIL_OTP_TOLERANCE_SECONDS, get_verification_code_tempmail
 
@@ -261,6 +262,7 @@ async def get_verification_code(
     log.info(f"等待验证码... (目标: {email})")
     start = time.time()
     email_lower = (email or "").lower().strip()
+    email_local = email_lower.split("@")[0] if "@" in email_lower else email_lower
     skip_recipient_check = _imap_login_is_mailbox_for_target(email_lower, imap_user)
     use_oauth = is_outlook(imap_host) and outlook_client_id and outlook_refresh_token
     unseen_fetch_limit_base = 10
@@ -351,13 +353,6 @@ async def get_verification_code(
                 msgs = sort_and_dedupe_messages(msgs)
                 scanned_count = len(msgs)
                 openai_count = 0
-                fallback_code = None
-                fallback_msg = None
-                recent_fallback_code = None
-                recent_fallback_msg = None
-                nearest_fallback_code = None
-                nearest_fallback_msg = None
-                nearest_fallback_delta = None
 
                 for msg in msgs:
                     if not looks_like_openai_otp_message(msg):
@@ -375,7 +370,12 @@ async def get_verification_code(
                     otp_code = extract_otp_code(msg)
                     if not otp_code:
                         continue
-                    recipient_ok = skip_recipient_check or recipient_matches(email_lower, msg)
+                    if skip_recipient_check:
+                        recipient_ok = True
+                    elif conn_poll_count == 1:
+                        recipient_ok = recipient_matches_full_email(email_lower, msg)
+                    else:
+                        recipient_ok = recipient_matches(email_local, msg)
                     if recipient_ok:
                         found_code = otp_code
                         log.step(f"[IMAP] 命中目标邮件: {summarize_message(msg)}")
@@ -388,37 +388,9 @@ async def get_verification_code(
                         except Exception:
                             pass
                         break
-                    if min_mail_timestamp is not None:
-                        delta = abs(msg_timestamp - min_mail_timestamp)
-                        if nearest_fallback_delta is None or delta < nearest_fallback_delta:
-                            nearest_fallback_delta = delta
-                            nearest_fallback_code = otp_code
-                            nearest_fallback_msg = msg
-                    if (
-                        recent_fallback_code is None
-                        and min_mail_timestamp is not None
-                        and msg_timestamp >= (min_mail_timestamp - min_timestamp_skew_seconds)
-                    ):
-                        recent_fallback_code = otp_code
-                        recent_fallback_msg = msg
-                    if fallback_code is None:
-                        fallback_code = otp_code
-                        fallback_msg = msg
 
                 if found_code:
                     return found_code
-                if nearest_fallback_code and not skip_recipient_check:
-                    log.step(f"[IMAP] 使用最接近发送时间的 OTP 回退: {summarize_message(nearest_fallback_msg)}")
-                    log.success(f"验证码: {nearest_fallback_code} (邮件时间: {nearest_fallback_msg.date})")
-                    return nearest_fallback_code
-                if recent_fallback_code and not skip_recipient_check:
-                    log.step(f"[IMAP] 使用发送后最新 OTP 邮件回退: {summarize_message(recent_fallback_msg)}")
-                    log.success(f"验证码: {recent_fallback_code} (邮件时间: {recent_fallback_msg.date})")
-                    return recent_fallback_code
-                if fallback_code and skip_recipient_check:
-                    log.step(f"[IMAP] 收件人未匹配，使用最近 OTP 邮件回退: {summarize_message(fallback_msg)}")
-                    log.success(f"验证码: {fallback_code} (邮件时间: {fallback_msg.date})")
-                    return fallback_code
 
                 if not use_oauth:
                     imap_miss_rounds += 1

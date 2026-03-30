@@ -125,6 +125,28 @@ def _recipient_in_address_list(target_lower: str, addresses: tuple) -> bool:
     return False
 
 
+def recipient_matches_full_email(target_lower: str, msg) -> bool:
+    target_lower = (target_lower or "").lower().strip()
+    if not target_lower:
+        return False
+    if _recipient_in_address_list(target_lower, getattr(msg, "to", None) or ()):
+        return True
+    if _recipient_in_address_list(target_lower, getattr(msg, "cc", None) or ()):
+        return True
+    for header_name in RECIPIENT_HEADER_NAMES:
+        vals = header_get(msg, header_name)
+        for value in header_values_to_texts(vals):
+            if target_lower in value.lower():
+                return True
+    headers = getattr(msg, "headers", None) or {}
+    for _hkey, values_tuple in headers.items():
+        for raw in values_tuple:
+            if target_lower in decode_mime_value(raw).lower():
+                return True
+    body_check = msg.text or msg.html or ""
+    return target_lower in body_check.lower()
+
+
 def recipient_matches(target_lower: str, msg) -> bool:
     target_lower = (target_lower or "").lower().strip()
     local_target = target_lower.split("@")[0] if "@" in target_lower else target_lower
