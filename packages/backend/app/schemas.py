@@ -88,7 +88,6 @@ class ConfigModel(BaseModel):
     log_dir: str = DEFAULT_LOG_DIR
     run_count: int = DEFAULT_RUN_COUNT
     run_interval: int = DEFAULT_RUN_INTERVAL
-    headless: bool = DEFAULT_HEADLESS
     proxy: Optional[str] = None
     log_enabled: bool = DEFAULT_LOG_ENABLED
     email_prefix: str = DEFAULT_EMAIL_PREFIX

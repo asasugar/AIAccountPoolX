@@ -4,7 +4,6 @@ from copy import deepcopy
 DEFAULT_IMAP_PORT = 993
 DEFAULT_RUN_COUNT = 0
 DEFAULT_RUN_INTERVAL = 60
-DEFAULT_HEADLESS = False
 DEFAULT_LOG_ENABLED = False
 DEFAULT_EMAIL_PREFIX = "auto"
 
@@ -50,7 +49,6 @@ CONFIG_SAVE_ORDER = (
     "log_dir",
     "run_count",
     "run_interval",
-    "headless",
     "proxy",
     "log_enabled",
     "email_prefix",
@@ -100,7 +98,6 @@ def get_default_config_values() -> dict:
         "data_dir": DEFAULT_DATA_DIR,
         "run_count": DEFAULT_RUN_COUNT,
         "run_interval": DEFAULT_RUN_INTERVAL,
-        "headless": DEFAULT_HEADLESS,
         "proxy": None,
         "log_enabled": DEFAULT_LOG_ENABLED,
         "email_prefix": DEFAULT_EMAIL_PREFIX,

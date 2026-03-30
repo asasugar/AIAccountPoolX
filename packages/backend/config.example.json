@@ -8,7 +8,6 @@
   "data_dir": "data",
   "run_count": 0,
   "run_interval": 60,
-  "headless": false,
   "proxy": null,
   "log_enabled": false,
   "email_prefix": "auto",

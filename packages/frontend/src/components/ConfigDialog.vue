@@ -79,17 +79,6 @@
           </template>
         </el-input>
       </el-form-item>
-      <el-form-item label="无头模式">
-        <div class="flex items-center justify-between w-full">
-          <el-switch
-            v-model="form.headless"
-            active-text="On"
-            inactive-text="Off"
-            inline-prompt
-          />
-          <span class="text-[10px] text-slate-500">在后台运行浏览器</span>
-        </div>
-      </el-form-item>
 
       <div class="relative py-2 mt-4">
         <el-divider content-position="left">
@@ -181,7 +170,6 @@ const form = ref({
   imap_pass: '',
   email_prefix: 'auto',
   proxy: '',
-  headless: false,
   log_dir: 'logs',
   run_count: 0,
   run_interval: 60,
