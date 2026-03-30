@@ -51,7 +51,8 @@ from .constants import (
 )
 from .http_helpers import (
     extract_callback_params,
-    extract_workspace_id,
+    extract_workspace_id_from_cookie,
+    extract_workspace_id_from_response,
     follow_redirect_chain_for_callback,
     log_http_failure,
 )
@@ -566,9 +567,15 @@ class OpenAIEngine(BaseEngine):
                 "message": f"注册异常: {str(e)}",
             }
 
-    async def _get_sentinel_header(self, client: httpx.AsyncClient, device_id: str) -> Optional[str]:
+    async def _get_sentinel_header(
+        self,
+        client: httpx.AsyncClient,
+        device_id: str,
+        flow: str = "authorize_continue",
+        header_flow: Optional[str] = None,
+    ) -> Optional[str]:
         try:
-            sen_payload = json.dumps({"p": "", "id": device_id, "flow": "authorize_continue"})
+            sen_payload = json.dumps({"p": "", "id": device_id, "flow": flow})
             resp = await client.post(
                 SENTINEL_API,
                 content=sen_payload,
@@ -582,12 +589,259 @@ class OpenAIEngine(BaseEngine):
                 log.error(f"[OpenAI] Sentinel 异常: HTTP {resp.status_code}")
                 return None
             sen_token = resp.json().get("token", "")
-            sentinel = json.dumps({"p": "", "t": "", "c": sen_token, "id": device_id, "flow": "authorize_continue"})
+            sentinel = json.dumps(
+                {
+                    "p": "",
+                    "t": "",
+                    "c": sen_token,
+                    "id": device_id,
+                    "flow": header_flow or flow,
+                }
+            )
             log.success("[OpenAI] Sentinel token 获取成功")
             return sentinel
         except Exception as e:
             log.exception("[OpenAI] Sentinel 异常", e)
             return None
+
+    async def _submit_login_password_step_and_get_continue_url(
+        self,
+        client: httpx.AsyncClient,
+        url_builder,
+        password: str,
+        device_id: str,
+    ) -> tuple[bool, Optional[str]]:
+        try:
+            sentinel = await self._get_sentinel_header(
+                client,
+                device_id,
+                flow="authorize_continue",
+                header_flow="password_verify",
+            )
+            if not sentinel:
+                return False, None
+
+            resp = await client.post(
+                url_builder(f"{AUTH_BASE}/api/accounts/password/verify"),
+                content=json.dumps({"password": password}),
+                headers={
+                    "Referer": f"{AUTH_BASE}/log-in/password",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "openai-sentinel-token": sentinel,
+                },
+            )
+            if resp.status_code not in [200, 302, 303]:
+                log_http_failure("[OpenAI] 登录密码提交失败", resp)
+                return False, None
+
+            try:
+                payload = resp.json() or {}
+            except Exception:
+                payload = {}
+            continue_url = str(payload.get("continue_url") or "").strip() or None
+            if continue_url:
+                try:
+                    await client.get(url_builder(continue_url))
+                except Exception:
+                    pass
+            log.success(f"[OpenAI] 登录密码已提交: {resp.status_code}")
+            return True, continue_url
+        except Exception as e:
+            log.exception("[OpenAI] 登录密码提交异常", e)
+            return False, None
+
+    async def _advance_new_account_authorization(
+        self,
+        cfg: dict,
+        client: httpx.AsyncClient,
+        url_builder,
+        auth_url: str,
+        email: str,
+        password: str,
+        tempmail_token: str = "",
+    ) -> tuple[Optional[str], Optional[str]]:
+        try:
+            auth_resp = await self._request_with_retries(
+                lambda: client.get(url_builder(auth_url)),
+                attempts=3,
+                retry_exceptions=(httpx.ConnectError, httpx.ConnectTimeout),
+                on_retry_message=lambda attempt, e: f"[OpenAI] 新授权入口连接失败，{2 - attempt} 秒后重试: {e}",
+                sleep_seconds=lambda _: 2,
+            )
+            if auth_resp.status_code not in [200, 302]:
+                log_http_failure("[OpenAI] 新授权入口访问失败", auth_resp, body_limit=200)
+                return None, None
+
+            current_url = str(getattr(auth_resp, "url", "") or "")
+            html = auth_resp.text or ""
+            device_id = str(client.cookies.get("oai-did") or "").strip()
+            if not device_id:
+                device_id = str(uuid.uuid4())
+                client.cookies.set("oai-did", device_id, domain=".openai.com")
+            reached_password_page = (
+                "/log-in/password" in current_url
+                or 'action="/log-in/password"' in html
+            )
+
+            if not reached_password_page and (
+                "/log-in" in current_url or 'action="/log-in"' in html
+            ):
+                sentinel = await self._get_sentinel_header(client, device_id)
+                if not sentinel:
+                    return None, None
+
+                login_resp = await client.post(
+                    url_builder(API_AUTHORIZE_CONTINUE),
+                    content=json.dumps(
+                        {
+                            "username": {
+                                "kind": "email",
+                                "value": email,
+                            }
+                        }
+                    ),
+                    headers={
+                        "Referer": f"{AUTH_BASE}/log-in",
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                        "openai-sentinel-token": sentinel,
+                    },
+                )
+                if login_resp.status_code != 200:
+                    log_http_failure("[OpenAI] 新授权提交邮箱失败", login_resp)
+                    return None, None
+
+                try:
+                    login_data = login_resp.json() or {}
+                except Exception:
+                    login_data = {}
+                page_type = str((login_data or {}).get("page", {}).get("type") or "").strip()
+                continue_url = str((login_data or {}).get("continue_url") or "").strip()
+                if continue_url:
+                    try:
+                        await client.get(url_builder(continue_url))
+                    except Exception:
+                        pass
+                reached_password_page = page_type in {"password", "login_password"} or "/log-in/password" in continue_url
+
+            if not reached_password_page:
+                log.warning("[OpenAI] 新授权流程未进入密码页，回退到旧 workspace 流程")
+                return None, None
+
+            otp_sent_at = time.time()
+            password_ok, _ = await self._submit_login_password_step_and_get_continue_url(
+                client,
+                url_builder,
+                password,
+                device_id,
+            )
+            if not password_ok:
+                return None, None
+
+            otp = await self._wait_for_email_otp(
+                cfg,
+                email,
+                tempmail_token=tempmail_token,
+                otp_sent_at=otp_sent_at,
+            )
+            if not otp:
+                log.error("[OpenAI] 新授权流程未获取到登录验证码")
+                return None, None
+
+            otp_resp = await self._request_with_retries(
+                lambda: client.post(
+                    url_builder(API_EMAIL_OTP_VALIDATE),
+                    content=json.dumps({"code": otp}),
+                    headers={
+                        "Referer": f"{AUTH_BASE}/email-verification",
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                ),
+                attempts=4,
+                retry_exceptions=(
+                    AnyioEndOfStream,
+                    httpx.ConnectError,
+                    httpx.ConnectTimeout,
+                    httpx.ReadError,
+                ),
+                on_retry_message=lambda attempt, e: f"[OpenAI] 新授权验证码校验连接异常重试 ({attempt + 1}/4): {e}",
+                sleep_seconds=lambda attempt: 2 + attempt,
+            )
+            if otp_resp.status_code != 200:
+                log_http_failure("[OpenAI] 新授权验证码校验失败", otp_resp)
+                return None, None
+
+            try:
+                otp_payload = otp_resp.json() or {}
+            except Exception:
+                otp_payload = {}
+            consent_url = str(otp_payload.get("continue_url") or "").strip()
+            auth_target = consent_url or auth_url
+
+            consent_resp = await self._request_with_retries(
+                lambda: client.get(url_builder(auth_target)),
+                attempts=3,
+                retry_exceptions=(httpx.ConnectError, httpx.ConnectTimeout),
+                on_retry_message=lambda attempt, e: f"[OpenAI] consent 页面连接失败，{2 - attempt} 秒后重试: {e}",
+                sleep_seconds=lambda _: 2,
+            )
+            current_url = str(getattr(consent_resp, "url", "") or "")
+            html = consent_resp.text or ""
+            if not (
+                "sign-in-with-chatgpt/codex/consent" in current_url
+                or 'action="/sign-in-with-chatgpt/codex/consent"' in html
+            ):
+                log.warning("[OpenAI] 新授权流程未进入 consent 页面，回退到旧 workspace 流程")
+                return None, None
+
+            workspace_id = extract_workspace_id_from_response(
+                response=consent_resp,
+                html=html,
+                url=current_url,
+            )
+            if not workspace_id:
+                log.warning("[OpenAI] consent 页面缺少 workspace_id，回退到旧 workspace 流程")
+                return None, None
+
+            select_resp = await client.post(
+                url_builder(API_WORKSPACE_SELECT),
+                content=json.dumps({"workspace_id": workspace_id}),
+                headers={
+                    "Referer": f"{AUTH_BASE}/sign-in-with-chatgpt/codex/consent",
+                    "Content-Type": "application/json",
+                },
+            )
+            if select_resp.status_code != 200:
+                log_http_failure("[OpenAI] 新授权 workspace select 失败", select_resp)
+                return None, None
+
+            try:
+                select_data = select_resp.json() or {}
+            except Exception:
+                select_data = {}
+            continue_url = str(select_data.get("continue_url") or "").strip()
+            if not continue_url:
+                continue_url = str(select_resp.headers.get("location") or "").strip()
+            if not continue_url:
+                text = str(getattr(select_resp, "text", "") or "")
+                matched = re.search(r"https?://[^\s\"'<>]+", text)
+                if matched:
+                    continue_url = matched.group(0).strip()
+            if not continue_url:
+                log.error("[OpenAI] 新授权 workspace/select 响应缺少 continue_url")
+                return None, None
+
+            callback_url = await follow_redirect_chain_for_callback(client, url_builder, continue_url)
+            if not callback_url:
+                log.error("[OpenAI] 新授权流程未能在重定向链中捕获 Callback URL")
+                return None, None
+
+            return workspace_id, callback_url
+        except Exception as e:
+            log.exception("[OpenAI] 新账号推进 Codex 授权流程异常", e)
+            return None, None
 
     async def _register_via_api(
         self,
@@ -823,64 +1077,86 @@ class OpenAIEngine(BaseEngine):
                     return False
                 log.success(f"[OpenAI] 账户已创建: {name}, {birthdate}")
 
-                # Step 8: 解析 workspace 并选择
-                log.step("[OpenAI] Step 8: 选择 Workspace...")
-                log.info(f"[OpenAI] cookies: {client.cookies}")
+                code_verifier, code_challenge = generate_pkce_codes()
+                state = generate_state()
+                auth_url = self._build_auth_url(code_challenge, state)
 
-                cookie_names = (
-                    "oai-client-auth-session",
-                    "oai_client_auth_session",
-                    "oai-client-auth-info",
-                    "oai_client_auth_info",
-                )
-                auth_cookie = ""
-                found_cookie = False
-                has_workspaces = False
                 workspace_id = ""
-                for cookie_name in cookie_names:
-                    auth_cookie = str(client.cookies.get(cookie_name) or "").strip()
-                    if auth_cookie:
-                        found_cookie = True
-                        has_workspaces, workspace_id = extract_workspace_id(auth_cookie)
-                        if has_workspaces and workspace_id:
-                            break
-                if not found_cookie:
-                    log.error("[OpenAI] 未能获取到授权 Cookie")
-                    return False
-                if not has_workspaces:
-                    log.error("[OpenAI] 授权 Cookie 里没有 workspace 信息")
-                    return False
-                if not workspace_id:
-                    log.error("[OpenAI] 无法解析 workspace_id")
-                    return False
+                callback_url = None
 
-                resp = await client.post(
-                    _url(API_WORKSPACE_SELECT),
-                    content=json.dumps({"workspace_id": workspace_id}),
-                    headers={
-                        "Referer": f"{AUTH_BASE}/sign-in-with-chatgpt/codex/consent",
-                        "Content-Type": "application/json",
-                    },
+                log.step("[OpenAI] Step 8: [新账号] 推进 Codex 授权流程...")
+                workspace_id, callback_url = await self._advance_new_account_authorization(
+                    cfg,
+                    client,
+                    _url,
+                    auth_url,
+                    email,
+                    password,
+                    tempmail_token=tempmail_token,
                 )
-                if resp.status_code != 200:
-                    log_http_failure("[OpenAI] workspace select 失败", resp)
-                    return False
 
-                continue_url = str((resp.json() or {}).get("continue_url") or "").strip()
-                if not continue_url:
-                    log.error("[OpenAI] workspace/select 响应缺少 continue_url")
-                    return False
-                log.success(f"[OpenAI] Workspace 已选择, continue_url 已获取")
+                if not workspace_id:
+                    log.step("[OpenAI] Step 9: 解析 workspace 并选择...")
 
-                # Step 9: 手动跟踪重定向链，捕获 callback URL
-                log.step("[OpenAI] Step 9: 跟踪重定向获取 Callback...")
-                callback_url = await follow_redirect_chain_for_callback(client, _url, continue_url)
-                if not callback_url:
-                    log.error("[OpenAI] 未能在重定向链中捕获 Callback URL")
-                    return False
+                    cookie_names = (
+                        "oai-client-auth-session",
+                        "oai_client_auth_session",
+                        "oai-client-auth-info",
+                        "oai_client_auth_info",
+                    )
+                    auth_cookie = ""
+                    for cookie_name in cookie_names:
+                        auth_cookie = str(client.cookies.get(cookie_name) or "").strip()
+                        if auth_cookie:
+                            has_workspaces, parsed_workspace_id = extract_workspace_id_from_cookie(auth_cookie)
+                            if has_workspaces and parsed_workspace_id:
+                                workspace_id = parsed_workspace_id
+                                break
+                    if not workspace_id:
+                        log.error("[OpenAI] 无法解析 workspace_id")
+                        return False
 
-                # Step 10: 从 callback URL 提取 code 并换取 Token
-                log.step("[OpenAI] Step 10: 换取 Token...")
+                    log.success(f"[OpenAI] Workspace ID: {workspace_id}")
+
+                    resp = await client.post(
+                        _url(API_WORKSPACE_SELECT),
+                        content=json.dumps({"workspace_id": workspace_id}),
+                        headers={
+                            "Referer": f"{AUTH_BASE}/sign-in-with-chatgpt/codex/consent",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    if resp.status_code != 200:
+                        log_http_failure("[OpenAI] workspace select 失败", resp)
+                        return False
+
+                    try:
+                        select_data = resp.json() or {}
+                    except Exception:
+                        select_data = {}
+                    continue_url = str(select_data.get("continue_url") or "").strip()
+                    if not continue_url:
+                        continue_url = str(resp.headers.get("location") or "").strip()
+                    if not continue_url:
+                        text = str(getattr(resp, "text", "") or "")
+                        m = re.search(r"https?://[^\s\"'<>]+", text)
+                        if m:
+                            continue_url = m.group(0).strip()
+                    if not continue_url:
+                        log.error("[OpenAI] workspace/select 响应缺少 continue_url")
+                        return False
+                    log.success(f"[OpenAI] Workspace 已选择, continue_url 已获取")
+
+                    log.step("[OpenAI] Step 10: 跟踪重定向获取 Callback...")
+                    callback_url = await follow_redirect_chain_for_callback(client, _url, continue_url)
+                    if not callback_url:
+                        log.error("[OpenAI] 未能在重定向链中捕获 Callback URL")
+                        return False
+                else:
+                    log.success(f"[OpenAI] 新授权流程获取 Workspace ID: {workspace_id}")
+
+                # Step 11: 从 callback URL 提取 code 并换取 Token
+                log.step("[OpenAI] Step 11: 换取 Token...")
                 auth_code, callback_state = extract_callback_params(callback_url)
 
                 if not auth_code:
