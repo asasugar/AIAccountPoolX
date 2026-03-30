@@ -12,7 +12,6 @@ from .config_defaults import (
     DEFAULT_PROXY_API_FIELD,
     DEFAULT_PROXY_API_FORMAT,
     DEFAULT_PROXY_AUTO_SWITCH,
-    DEFAULT_PROXY_MAX_USES,
     DEFAULT_PROXY_PROTOCOL,
     DEFAULT_PROXY_REFRESH_INTERVAL,
     DEFAULT_PROXY_SELECTION_STRATEGY,
@@ -29,7 +28,6 @@ from .proxy_pool_helpers import (
 class ProxyInfo:
     """代理信息"""
     server: str
-    used_count: int = 0
     last_used: Optional[datetime] = None
     success_count: int = 0
     fail_count: int = 0
@@ -52,8 +50,6 @@ class ProxyPoolConfig:
     selection_strategy: str = DEFAULT_PROXY_SELECTION_STRATEGY
     # 代理池刷新间隔 (秒), 仅对 API 模式有效
     refresh_interval: int = DEFAULT_PROXY_REFRESH_INTERVAL
-    # 单个代理最大使用次数 (0 表示不限制)
-    max_uses_per_proxy: int = DEFAULT_PROXY_MAX_USES
     # 是否在失败后自动切换代理
     auto_switch_on_fail: bool = DEFAULT_PROXY_AUTO_SWITCH
 
@@ -77,7 +73,6 @@ class ProxyPool:
             proxy_protocol=config.get("proxy_protocol", DEFAULT_PROXY_PROTOCOL),
             selection_strategy=config.get("proxy_selection_strategy", DEFAULT_PROXY_SELECTION_STRATEGY),
             refresh_interval=config.get("proxy_refresh_interval", DEFAULT_PROXY_REFRESH_INTERVAL),
-            max_uses_per_proxy=config.get("proxy_max_uses", DEFAULT_PROXY_MAX_USES),
             auto_switch_on_fail=config.get("proxy_auto_switch", DEFAULT_PROXY_AUTO_SWITCH),
         )
 
@@ -135,10 +130,9 @@ class ProxyPool:
                 return None
 
             # 更新使用统计
-            proxy_info.used_count += 1
             proxy_info.last_used = datetime.now()
 
-            log.info(f"[ProxyPool] 选择代理: {proxy_info.server} (已使用 {proxy_info.used_count} 次)")
+            log.info(f"[ProxyPool] 选择代理: {proxy_info.server}")
             return proxy_info.server
 
     def _select_proxy(self) -> Optional[ProxyInfo]:
@@ -146,18 +140,11 @@ class ProxyPool:
         if not self._proxies:
             return None
 
-        available = self._proxies
-        if self._config and self._config.max_uses_per_proxy > 0:
-            available = [p for p in self._proxies if p.used_count < self._config.max_uses_per_proxy]
-            if not available:
-                # 如果所有代理都达到最大使用次数，重置计数
-                log.info("[ProxyPool] 所有代理已达最大使用次数，重置计数器")
-                for p in self._proxies:
-                    p.used_count = 0
-                available = self._proxies
-
         strategy = self._config.selection_strategy if self._config else "round_robin"
-        proxy, next_index = select_proxy_by_strategy(available, strategy, self._current_index)
+        if strategy == "least_used":
+            # least_used 策略回退为轮询策略
+            strategy = "round_robin"
+        proxy, next_index = select_proxy_by_strategy(self._proxies, strategy, self._current_index)
         self._current_index = next_index
         return proxy
 
@@ -183,7 +170,6 @@ class ProxyPool:
             "proxies": [
                 {
                     "server": p.server[:30] + "..." if len(p.server) > 30 else p.server,
-                    "used_count": p.used_count,
                     "success_count": p.success_count,
                     "fail_count": p.fail_count,
                 }

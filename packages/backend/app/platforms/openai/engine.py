@@ -261,14 +261,14 @@ class OpenAIEngine(BaseEngine):
                 proxy_pool.report_failure(proxy)
 
     async def run_batch_parallel(self, cfg: dict, count: int, concurrency: int) -> None:
-        semaphore = asyncio.Semaphore(max(1, concurrency))
-        total = count if count > 0 else 0
-        if total <= 0:
-            return
+        worker_total = max(1, int(concurrency or 1))
+        if count > 0:
+            worker_total = min(worker_total, count)
 
-        async def _one_task(round_no: int):
-            async with semaphore:
-                if self._stop_event.is_set():
+        async def _worker():
+            while not self._stop_event.is_set():
+                round_no = await self._claim_round(count)
+                if round_no is None:
                     return
                 self.active_workers += 1
                 try:
@@ -276,7 +276,7 @@ class OpenAIEngine(BaseEngine):
                 finally:
                     self.active_workers = max(0, self.active_workers - 1)
 
-        tasks = [asyncio.create_task(_one_task(i)) for i in range(1, total + 1)]
+        tasks = [asyncio.create_task(_worker()) for _ in range(worker_total)]
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -486,10 +486,6 @@ class OpenAIEngine(BaseEngine):
         else:
             pipe_min = 0
             pipe_max = 0
-            if count == 0:
-                selected_mode = "pipeline"
-                pipe_min = max(0, int(interval or 0))
-                pipe_max = pipe_min
 
         log.info(
             f"[OpenAI] 批量注册启动: 共 {'无限' if count == 0 else count} 次, "
