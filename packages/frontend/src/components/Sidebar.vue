@@ -73,10 +73,8 @@
               class="!w-full custom-input-number"
             />
           </div>
-          <div class="rounded-xl border border-slate-700/50 bg-slate-900/35 p-2.5">
-            <label class="text-[10px] font-medium text-slate-400 mb-1.5 block">
-              {{ taskMode === 'parallel' ? '统一间隔(秒)' : '默认间隔(秒)' }}
-            </label>
+          <div v-if="taskMode === 'pipeline'" class="rounded-xl border border-slate-700/50 bg-slate-900/35 p-2.5">
+            <label class="text-[10px] font-medium text-slate-400 mb-1.5 block">默认间隔(秒)</label>
             <el-input-number
               v-model="taskInterval"
               :min="1"
@@ -90,6 +88,9 @@
             <el-input-number
               v-model="taskConcurrency"
               :min="1"
+              :max="10"
+              :step="1"
+              placeholder="1~10"
               size="small"
               controls-position="right"
               class="!w-full custom-input-number"
