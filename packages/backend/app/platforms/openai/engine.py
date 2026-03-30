@@ -825,12 +825,28 @@ class OpenAIEngine(BaseEngine):
 
                 # Step 8: 解析 workspace 并选择
                 log.step("[OpenAI] Step 8: 选择 Workspace...")
-                auth_cookie = client.cookies.get("oai-client-auth-session")
-                if not auth_cookie:
+                log.info(f"[OpenAI] cookies: {client.cookies}")
+
+                cookie_names = (
+                    "oai-client-auth-session",
+                    "oai_client_auth_session",
+                    "oai-client-auth-info",
+                    "oai_client_auth_info",
+                )
+                auth_cookie = ""
+                found_cookie = False
+                has_workspaces = False
+                workspace_id = ""
+                for cookie_name in cookie_names:
+                    auth_cookie = str(client.cookies.get(cookie_name) or "").strip()
+                    if auth_cookie:
+                        found_cookie = True
+                        has_workspaces, workspace_id = extract_workspace_id(auth_cookie)
+                        if has_workspaces and workspace_id:
+                            break
+                if not found_cookie:
                     log.error("[OpenAI] 未能获取到授权 Cookie")
                     return False
-
-                has_workspaces, workspace_id = extract_workspace_id(auth_cookie)
                 if not has_workspaces:
                     log.error("[OpenAI] 授权 Cookie 里没有 workspace 信息")
                     return False
