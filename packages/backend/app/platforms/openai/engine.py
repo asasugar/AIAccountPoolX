@@ -86,7 +86,6 @@ class OpenAIEngine(BaseEngine):
             {"key": "imap_user", "label": "IMAP 用户名", "type": "text", "required": True},
             {"key": "imap_pass", "label": "IMAP 密码", "type": "password", "required": True},
             {"key": "email_prefix", "label": "邮箱前缀", "type": "text", "default": "auto"},
-            {"key": "proxy", "label": "代理服务器", "type": "text"},
         ]
 
     def get_default_config(self) -> dict:
@@ -98,7 +97,6 @@ class OpenAIEngine(BaseEngine):
             "imap_user": "",
             "imap_pass": "",
             "email_prefix": "auto",
-            "proxy": None,
         }
 
     def _save_account_to_db(
@@ -345,13 +343,13 @@ class OpenAIEngine(BaseEngine):
             )
 
     async def _resolve_proxy(self, cfg: dict, preferred_proxy: Optional[str] = None) -> Optional[str]:
-        # 代理优先级：显式传入 > 代理池 > 配置文件静态代理
+        # 代理优先级：显式传入 > 代理池
         if preferred_proxy:
             return preferred_proxy
         proxy = await proxy_pool.get_proxy()
         if proxy:
             return proxy
-        return cfg.get("proxy", None)
+        return None
 
     def _build_transport(self, proxy: Optional[str]) -> tuple[dict, Optional[AsyncProxyTransport]]:
         # 根据代理协议构建 httpx 传输参数

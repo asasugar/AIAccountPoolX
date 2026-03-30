@@ -37,7 +37,7 @@ OpenAI 账号注册与 Token 管理系统，提供 FastAPI 后端、Vue 3 控制
   - 测试、更新、删除已有渠道
 
 - **代理与 IP 轮换**
-  - 支持单代理、静态代理池、动态代理 API
+  - 支持静态代理池、动态代理 API
   - 轮询 / 随机 / 最少使用策略
   - 可选 AWS API Gateway 多区域出口轮换
 
@@ -137,7 +137,6 @@ cp packages/backend/config.example.json packages/backend/config.json
 
 - `imap_user`
 - `imap_pass`
-- `proxy`
 - `proxy_pool`
 - `proxy_api`
 - `newapi_base_url`
@@ -268,11 +267,11 @@ docker compose ps
 
 ### 代理配置
 
-支持三类入口：
+支持两类入口（统一走代理池）：
 
-- `proxy`：单个默认代理
 - `proxy_pool`：静态代理列表
 - `proxy_api`：动态代理 API
+- `proxy`：历史字段，已废弃（即使在旧 `config.json` 中存在也会被忽略）
 
 配合以下字段控制策略：
 
@@ -280,6 +279,11 @@ docker compose ps
 - `proxy_refresh_interval`
 - `proxy_max_uses`
 - `proxy_auto_switch`
+
+配置生效说明：
+
+- 通过 Web UI「系统配置」保存，或调用 `PUT /api/config` 更新时，后端会立即刷新 `proxy_pool`，无需重启服务。
+- 如果你是直接手动修改 `packages/backend/config.json`，运行中的进程不会自动重载；需要重启后端服务（Docker 场景下重启 backend 容器）后才会生效。
 
 ### AWS API Gateway 轮换
 

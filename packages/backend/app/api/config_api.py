@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from ..config import get_config, save_config, load_config
+from ..proxy_pool import proxy_pool
 from ..schemas import ConfigModel
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -17,5 +18,6 @@ async def update_config(cfg: ConfigModel):
     for k, v in cfg.model_dump().items():
         current[k] = v
     save_config(current)
-    load_config()
+    updated_cfg = load_config()
+    proxy_pool.configure(updated_cfg)
     return {"ok": True, "message": "配置已更新"}

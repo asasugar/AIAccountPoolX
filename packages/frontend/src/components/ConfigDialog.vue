@@ -72,14 +72,37 @@
         <el-input v-model="form.email_prefix" placeholder="auto" />
         <div class="text-[10px] text-slate-500 mt-1 leading-tight">Prefix for generated emails (e.g. prefix.uuid@domain)</div>
       </el-form-item>
-      <el-form-item label="代理服务器">
-        <el-input v-model="form.proxy" placeholder="socks5://127.0.0.1:7897">
-          <template #prefix>
-            <el-icon class="text-slate-500"><Connection /></el-icon>
-          </template>
-        </el-input>
+      <el-form-item label="代理池">
+        <div class="w-full space-y-2">
+          <div
+            v-for="(_, idx) in form.proxy_pool"
+            :key="`proxy-item-${idx}`"
+            class="flex items-center gap-2"
+          >
+            <el-input
+              v-model="form.proxy_pool[idx]"
+              placeholder="socks5://127.0.0.1:7897"
+              class="flex-1"
+            />
+            <button
+              type="button"
+              class="w-9 h-9 rounded-lg border border-slate-600/80 text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+              @click="addProxyRow(idx)"
+            >
+              +
+            </button>
+            <button
+              v-if="form.proxy_pool.length > 1"
+              type="button"
+              class="w-9 h-9 rounded-lg border border-slate-700 text-slate-500 hover:text-white hover:bg-slate-800 transition-colors"
+              @click="removeProxyRow(idx)"
+            >
+              -
+            </button>
+          </div>
+          <div class="text-[10px] text-slate-500 leading-tight">保存后会自动使用随机轮换策略（random）</div>
+        </div>
       </el-form-item>
-
       <div class="relative py-2 mt-4">
         <el-divider content-position="left">
           <span class="flex items-center gap-2 text-amber-400 font-medium text-xs uppercase tracking-wider">
@@ -169,11 +192,12 @@ const form = ref({
   imap_user: '',
   imap_pass: '',
   email_prefix: 'auto',
-  proxy: '',
   log_dir: 'logs',
   run_count: 0,
   run_interval: 60,
   log_enabled: false,
+  proxy_pool: [''],
+  proxy_selection_strategy: 'random',
   newapi_base_url: '',
   newapi_token: '',
   newapi_user_id: '',
@@ -222,11 +246,28 @@ function onTempmailBaseUrlChange(val: string) {
   p.tempmail_base_url = (val || '').trim() || 'https://api.tempmail.lol/v2'
 }
 
+function ensureProxyPoolRows() {
+  if (!Array.isArray(form.value.proxy_pool)) form.value.proxy_pool = []
+  if (form.value.proxy_pool.length === 0) form.value.proxy_pool = ['']
+}
+
+function addProxyRow(idx: number) {
+  form.value.proxy_pool.splice(idx + 1, 0, '')
+}
+
+function removeProxyRow(idx: number) {
+  if (form.value.proxy_pool.length <= 1) {
+    form.value.proxy_pool = ['']
+    return
+  }
+  form.value.proxy_pool.splice(idx, 1)
+}
+
 onMounted(async () => {
   try {
     const { data } = await configApi.get()
     Object.assign(form.value, data)
-    if (!form.value.proxy) form.value.proxy = ''
+    ensureProxyPoolRows()
     if (!form.value.newapi_base_url) form.value.newapi_base_url = ''
     if (!form.value.newapi_token) form.value.newapi_token = ''
     if (!form.value.newapi_user_id) form.value.newapi_user_id = ''
@@ -262,7 +303,10 @@ async function handleSave() {
   try {
     syncFieldsToPreset(form.value.active_email_preset)
     const payload = { ...form.value }
-    if (!payload.proxy) payload.proxy = null as any
+    payload.proxy_pool = (form.value.proxy_pool || [])
+      .map((item: string) => String(item || '').trim())
+      .filter(Boolean)
+    payload.proxy_selection_strategy = 'random'
     await configApi.update(payload)
     ElMessage.success('Configuration saved')
     emit('close')

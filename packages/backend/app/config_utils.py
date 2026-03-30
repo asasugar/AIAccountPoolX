@@ -121,6 +121,8 @@ def normalize_config(
     has_user_active_preset = isinstance(cfg, dict) and "active_email_preset" in cfg
     if cfg:
         normalized.update(deepcopy(cfg))
+    # Legacy compatibility: drop removed single-proxy config key.
+    normalized.pop("proxy", None)
 
     normalized["proxy_pool"] = normalize_list(normalized.get("proxy_pool"))
     normalized["aws_regions"] = normalize_list(normalized.get("aws_regions"))

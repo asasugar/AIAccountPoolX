@@ -5,7 +5,6 @@ from .config_defaults import (
     DEFAULT_NEWAPI_MODELS,
     DEFAULT_NEWAPI_TYPE_OPENAI,
     DEFAULT_EMAIL_PREFIX,
-    DEFAULT_HEADLESS,
     DEFAULT_IMAP_PORT,
     DEFAULT_LOG_DIR,
     DEFAULT_LOG_ENABLED,
@@ -88,7 +87,6 @@ class ConfigModel(BaseModel):
     log_dir: str = DEFAULT_LOG_DIR
     run_count: int = DEFAULT_RUN_COUNT
     run_interval: int = DEFAULT_RUN_INTERVAL
-    proxy: Optional[str] = None
     log_enabled: bool = DEFAULT_LOG_ENABLED
     email_prefix: str = DEFAULT_EMAIL_PREFIX
     # 代理池配置
