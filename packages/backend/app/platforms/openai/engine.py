@@ -1075,7 +1075,7 @@ class OpenAIEngine(BaseEngine):
                 if resp.status_code != 200:
                     log_http_failure("[OpenAI] 账户创建失败", resp)
                     return False
-                log.success(f"[OpenAI] 账户已创建: {name}, {birthdate}")
+                log.info(f"[OpenAI] 账户已创建: {name}, {birthdate}")
 
                 code_verifier, code_challenge = generate_pkce_codes()
                 state = generate_state()

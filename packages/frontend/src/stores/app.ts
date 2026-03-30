@@ -44,6 +44,7 @@ export const useAppStore = defineStore('app', () => {
   const logs = shallowRef<StoredLogEntry[]>([])
   const currentPlatform = ref('openai')
   const platforms = ref<PlatformInfo[]>([])
+  const registrationSuccessTick = ref(0)
   const stats = ref<Stats>({
     success_count: 0,
     fail_count: 0,
@@ -100,6 +101,13 @@ export const useAppStore = defineStore('app', () => {
     pendingLogs.push(normalizedEntry)
     pendingLogIds.add(normalizedEntry.id)
     scheduleLogFlush(pendingLogs.length >= LOG_IMMEDIATE_FLUSH_SIZE)
+    if (
+      normalizedEntry.level === 'success'
+      && normalizedEntry.message.includes('注册+Token成功')
+    ) {
+      registrationSuccessTick.value += 1
+      void fetchStats()
+    }
   }
 
   function clearLogs() {
@@ -180,7 +188,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   return {
-    logs, stats, liveLog, currentPlatform, platforms, theme,
+    logs, stats, liveLog, currentPlatform, platforms, theme, registrationSuccessTick,
     addLog, clearLogs, fetchPlatforms, fetchStats, startTask, stopTask, initTheme, toggleTheme
   }
 })

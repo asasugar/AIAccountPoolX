@@ -305,7 +305,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { Search, CopyDocument, Delete, More, Key, Upload, RefreshRight, VideoPlay, Remove } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { tokenApi, newapiApi } from '../api'
@@ -394,7 +394,6 @@ const tableHeaderCellStyle = computed(() => {
   }
 })
 
-let pollTimer: ReturnType<typeof setInterval> | null = null
 let debounceTimer: ReturnType<typeof setTimeout>
 
 onMounted(() => {
@@ -402,28 +401,11 @@ onMounted(() => {
   fetchSyncStatus()
 })
 
-const currentEngineRunning = computed(() =>
-  !!store.platforms.find(p => p.id === store.currentPlatform)?.running
-)
-
-function startPolling() {
-  if (pollTimer) return
-  pollTimer = setInterval(fetchTokens, 10000)
-}
-
-function stopPolling() {
-  if (!pollTimer) return
-  clearInterval(pollTimer)
-  pollTimer = null
-}
-
 watch(
-  () => currentEngineRunning.value,
-  (running) => {
-    if (running) startPolling()
-    else stopPolling()
-  },
-  { immediate: true }
+  () => store.registrationSuccessTick,
+  () => {
+    fetchTokens()
+  }
 )
 
 async function fetchSyncStatus() {
@@ -501,10 +483,6 @@ function formatSyncTime(iso: string): string {
     return iso
   }
 }
-
-onUnmounted(() => {
-  stopPolling()
-})
 
 async function fetchTokens() {
   const selectedIds = new Set(selectedRows.value.map(r => r.id))
