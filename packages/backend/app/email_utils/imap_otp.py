@@ -269,8 +269,11 @@ async def get_verification_code(
     min_mail_timestamp = (otp_sent_at - TEMPMAIL_OTP_TOLERANCE_SECONDS) if otp_sent_at else None
     min_timestamp_skew_seconds = 180
     poll_count = 0
+    max_poll_rounds = 5
+    imap_miss_rounds = 0
+    force_reconnect_next_round = False
 
-    while time.time() - start < timeout:
+    while time.time() - start < timeout and poll_count < max_poll_rounds:
         if stop_event and stop_event.is_set():
             log.info("[IMAP] 任务已停止，中断验证码获取")
             return None
@@ -304,6 +307,16 @@ async def get_verification_code(
                             all_limit=all_fetch_limit,
                         )
                 else:
+                    if force_reconnect_next_round and _imap_conn is not None:
+                        try:
+                            _imap_conn.logout()
+                        except Exception:
+                            pass
+                        _imap_conn = None
+                        _imap_conn_key = None
+                        _imap_folders_cache = None
+                        log.info("[IMAP] 连续2轮未命中，重建连接")
+                    force_reconnect_next_round = False
                     imap_conn_key = (imap_host, imap_port, imap_user, imap_pass)
                     if _imap_conn is None or _imap_conn_key != imap_conn_key:
                         log.info("[IMAP] 建立连接前等待 5s")
@@ -402,6 +415,11 @@ async def get_verification_code(
                     log.success(f"验证码: {fallback_code} (邮件时间: {fallback_msg.date})")
                     return fallback_code
 
+                if not use_oauth:
+                    imap_miss_rounds += 1
+                    if imap_miss_rounds % 2 == 0 and poll_count < max_poll_rounds:
+                        force_reconnect_next_round = True
+
                 elapsed = int(time.time() - start)
                 log.info(
                     f"[IMAP] 第 {poll_count} 轮未命中验证码: "
@@ -414,6 +432,10 @@ async def get_verification_code(
             _imap_folders_cache = None
             _outlook_conn = None
 
-        await asyncio.sleep(3)
+        if poll_count < max_poll_rounds:
+            await asyncio.sleep(3)
+
+    if poll_count >= max_poll_rounds:
+        log.error(f"[IMAP] 已重试 {max_poll_rounds} 轮仍未获取到验证码")
 
     return None
