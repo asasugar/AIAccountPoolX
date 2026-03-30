@@ -426,6 +426,7 @@ async function handleSyncNewApi() {
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '同步失败')
   } finally {
+    await fetchTokens()
     syncing.value = false
   }
 }
