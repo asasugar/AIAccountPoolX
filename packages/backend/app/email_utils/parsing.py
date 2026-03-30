@@ -2,7 +2,7 @@ import re
 from email.header import decode_header
 from typing import Any, Optional
 
-from imap_tools import MailMessage
+MailMessage = Any
 
 
 OPENAI_OTP_SUBJECT = "Your ChatGPT code"
@@ -21,8 +21,12 @@ RECIPIENT_HEADER_NAMES = (
     "delivered-to",
     "x-original-to",
     "x-forwarded-to",
-    "x-forwarded-for",
     "envelope-to",
+    "x-envelope-to",
+    "original-recipient",
+    "x-rcpt-to",
+    "resent-to",
+    "x-qq-rcpt",
 )
 
 
@@ -92,27 +96,64 @@ def is_openai_sender(sender_text: str) -> bool:
     return False
 
 
+def looks_like_openai_otp_message(msg: MailMessage) -> bool:
+    if is_openai_sender(message_sender_lower(msg)):
+        return True
+    subject = decode_mime_value(getattr(msg, "subject", "") or "").lower()
+    return OPENAI_OTP_SUBJECT.lower() in subject
+
+
 def extract_otp_from_text(text: str) -> Optional[str]:
     match = OTP_SEMANTIC_CODE_RE.search(text) or OTP_CODE_RE.search(text)
     return match.group(1) if match else None
 
 
+def _recipient_in_address_list(target_lower: str, addresses: tuple) -> bool:
+    target_lower = (target_lower or "").lower().strip()
+    if not addresses:
+        return False
+    local_target = target_lower.split("@")[0] if "@" in target_lower else ""
+    for recipient in addresses:
+        recipient_lower = decode_mime_value(recipient).lower().strip()
+        recipient_local = recipient_lower.split("@")[0] if "@" in recipient_lower else recipient_lower
+        if target_lower in recipient_lower:
+            return True
+        if local_target and recipient_local == local_target:
+            return True
+        if local_target and recipient_local.startswith(local_target + "+"):
+            return True
+    return False
+
+
 def recipient_matches(target_lower: str, msg) -> bool:
-    if msg.to:
-        local_target = target_lower.split("@")[0] if "@" in target_lower else ""
-        for recipient in msg.to:
-            recipient_lower = decode_mime_value(recipient).lower()
-            if target_lower in recipient_lower:
-                return True
-            if local_target and ("+" in recipient_lower and local_target in recipient_lower):
-                return True
+    target_lower = (target_lower or "").lower().strip()
+    local_target = target_lower.split("@")[0] if "@" in target_lower else target_lower
+    local_token_re = re.compile(rf"(?<![a-z0-9._%+-]){re.escape(local_target)}(?![a-z0-9._%+-])")
+    if _recipient_in_address_list(target_lower, getattr(msg, "to", None) or ()):
+        return True
+    if _recipient_in_address_list(target_lower, getattr(msg, "cc", None) or ()):
+        return True
     for header_name in RECIPIENT_HEADER_NAMES:
         vals = header_get(msg, header_name)
         for value in header_values_to_texts(vals):
-            if target_lower in value.lower():
+            value_lower = value.lower()
+            if target_lower in value_lower:
+                return True
+            if local_target and local_token_re.search(value_lower):
+                return True
+    headers = getattr(msg, "headers", None) or {}
+    for _hkey, values_tuple in headers.items():
+        for raw in values_tuple:
+            text = decode_mime_value(raw).lower()
+            if target_lower in text:
+                return True
+            if local_target and local_token_re.search(text):
                 return True
     body_check = msg.text or msg.html or ""
-    if target_lower in body_check.lower():
+    body_lower = body_check.lower()
+    if target_lower in body_lower:
+        return True
+    if local_target and local_token_re.search(body_lower):
         return True
     return False
 

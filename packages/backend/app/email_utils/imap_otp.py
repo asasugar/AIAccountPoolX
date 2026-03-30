@@ -8,19 +8,33 @@ from imap_tools import AND, MailBox, MailMessage
 from ..log_manager import log_manager as log
 from .parsing import (
     extract_otp_code,
-    is_openai_sender,
-    message_sender_lower,
+    looks_like_openai_otp_message,
     recipient_matches,
 )
 from .tempmail import TEMPMAIL_OTP_TOLERANCE_SECONDS, get_verification_code_tempmail
 
 
-IMAP_FOLDERS = ("INBOX", "Junk", "&V4NXPpCuTvY-")
-OUTLOOK_FOLDERS = ("INBOX", "Junk")
+IMAP_PRIMARY_FOLDERS = ("INBOX",)
+IMAP_SECONDARY_FOLDERS = ("Junk", "&V4NXPpCuTvY-")
+OUTLOOK_PRIMARY_FOLDERS = ("INBOX",)
+OUTLOOK_SECONDARY_FOLDERS = ("Junk",)
+
+
+def _imap_login_is_mailbox_for_target(email_lower: str, imap_user: str) -> bool:
+    u = (imap_user or "").lower().strip()
+    if not u:
+        return False
+    if u == email_lower:
+        return True
+    if "@" not in u:
+        local, sep, _ = email_lower.partition("@")
+        return bool(sep) and u == local
+    return False
 
 _imap_lock = asyncio.Lock()
 _imap_conn: Optional[MailBox] = None
 _imap_conn_key: Optional[tuple] = None
+_imap_folders_cache: Optional[tuple[tuple, tuple[str, ...]]] = None
 _outlook_conn: Optional[imaplib.IMAP4_SSL] = None
 _outlook_conn_key: Optional[tuple] = None
 
@@ -54,7 +68,8 @@ def get_outlook_conn(imap_user: str, client_id: str, refresh_token: str) -> imap
 def fetch_outlook_messages_by_queries(
     conn: imaplib.IMAP4_SSL,
     folder: str = "INBOX",
-    limit: int = 5,
+    unseen_limit: int = 8,
+    all_limit: int = 4,
 ):
     try:
         conn.select(folder)
@@ -63,11 +78,21 @@ def fetch_outlook_messages_by_queries(
 
     messages = []
     try:
-        _, data = conn.search(None, "UNSEEN")
+        _, unseen_data = conn.search(None, "UNSEEN")
+        _, all_data = conn.search(None, "ALL")
     except Exception:
         return []
-    uids = data[0].split() if data and data[0] else []
-    uids = uids[-limit:] if len(uids) > limit else uids
+    unseen_uids = unseen_data[0].split() if unseen_data and unseen_data[0] else []
+    all_uids = all_data[0].split() if all_data and all_data[0] else []
+    combined_uids = []
+    seen_uid = set()
+    for uid in (unseen_uids[-unseen_limit:] + all_uids[-all_limit:]):
+        if uid in seen_uid:
+            continue
+        seen_uid.add(uid)
+        combined_uids.append(uid)
+    max_total = unseen_limit + all_limit
+    uids = combined_uids[-max_total:] if len(combined_uids) > max_total else combined_uids
     for uid in reversed(uids):
         uid_text = uid.decode() if isinstance(uid, bytes) else str(uid)
         try:
@@ -84,19 +109,48 @@ def fetch_outlook_messages_by_queries(
 
 def fetch_mailbox_messages_by_queries(
     mailbox: MailBox,
-    limit: int = 5,
+    unseen_limit: int = 8,
+    all_limit: int = 4,
+    target_email: str = "",
 ):
+    target_msgs = []
+    unseen_msgs = []
+    all_msgs = []
+    if target_email:
+        try:
+            target_msgs = list(
+                mailbox.fetch(
+                    criteria=AND(to=target_email, all=True),
+                    limit=max(unseen_limit, all_limit),
+                    reverse=True,
+                    mark_seen=False,
+                )
+            )
+        except Exception:
+            pass
     try:
-        return list(
+        unseen_msgs = list(
             mailbox.fetch(
                 criteria=AND(seen=False),
-                limit=limit,
+                limit=unseen_limit,
                 reverse=True,
                 mark_seen=False,
             )
         )
     except Exception:
-        return []
+        pass
+    try:
+        all_msgs = list(
+            mailbox.fetch(
+                criteria=AND(all=True),
+                limit=all_limit,
+                reverse=True,
+                mark_seen=False,
+            )
+        )
+    except Exception:
+        pass
+    return target_msgs + unseen_msgs + all_msgs
 
 
 def sort_and_dedupe_messages(msgs: list[MailMessage]) -> list[MailMessage]:
@@ -141,6 +195,40 @@ def get_mailbox(imap_host: str, imap_port: int, imap_user: str, imap_pass: str) 
     return mailbox
 
 
+def get_imap_scan_folders(mailbox: MailBox, conn_key: tuple) -> tuple[str, ...]:
+    global _imap_folders_cache
+    if _imap_folders_cache is not None and _imap_folders_cache[0] == conn_key:
+        return _imap_folders_cache[1]
+    listed_folders: list[str] = []
+    try:
+        for info in mailbox.folder.list():
+            name = (getattr(info, "name", "") or "").strip()
+            if not name:
+                continue
+            flags = tuple((f or "").lower() for f in getattr(info, "flags", ()) or ())
+            if "\\noselect" in flags:
+                continue
+            listed_folders.append(name)
+    except Exception:
+        pass
+
+    def _folder_priority(name: str) -> tuple[int, str]:
+        lower_name = name.lower()
+        if lower_name == "inbox":
+            return (0, lower_name)
+        if "spam" in lower_name or "junk" in lower_name:
+            return (1, lower_name)
+        if "trash" in lower_name or "deleted" in lower_name:
+            return (3, lower_name)
+        return (2, lower_name)
+
+    ordered = tuple(dict.fromkeys(sorted(listed_folders, key=_folder_priority)))
+    if not ordered:
+        ordered = IMAP_PRIMARY_FOLDERS + IMAP_SECONDARY_FOLDERS
+    _imap_folders_cache = (conn_key, ordered)
+    return ordered
+
+
 async def get_verification_code(
     email: str,
     imap_host: str,
@@ -156,6 +244,7 @@ async def get_verification_code(
     tempmail_base_url: str = "https://api.tempmail.lol/v2",
     otp_sent_at: Optional[float] = None,
 ):
+    global _imap_conn, _imap_conn_key, _imap_folders_cache, _outlook_conn
     if str(email_type).lower() == "tempmail_lol":
         if not tempmail_token:
             log.error("[TEMPMAIL] 缺少 token，无法拉取验证码")
@@ -171,11 +260,14 @@ async def get_verification_code(
 
     log.info(f"等待验证码... (目标: {email})")
     start = time.time()
-    email_lower = email.lower()
+    email_lower = (email or "").lower().strip()
+    skip_recipient_check = _imap_login_is_mailbox_for_target(email_lower, imap_user)
     use_oauth = is_outlook(imap_host) and outlook_client_id and outlook_refresh_token
-    fetch_limit = 30
+    unseen_fetch_limit_base = 10
+    all_fetch_limit_base = 6
     max_mail_age = max(300, timeout * 4)
     min_mail_timestamp = (otp_sent_at - TEMPMAIL_OTP_TOLERANCE_SECONDS) if otp_sent_at else None
+    min_timestamp_skew_seconds = 180
     poll_count = 0
 
     while time.time() - start < timeout:
@@ -186,24 +278,54 @@ async def get_verification_code(
         try:
             async with _imap_lock:
                 found_code = None
+                if poll_count >= 6:
+                    unseen_fetch_limit = 60
+                    all_fetch_limit = 40
+                    include_secondary_folders = True
+                elif poll_count >= 3:
+                    unseen_fetch_limit = 30
+                    all_fetch_limit = 20
+                    include_secondary_folders = (poll_count % 2 == 0)
+                else:
+                    unseen_fetch_limit = unseen_fetch_limit_base
+                    all_fetch_limit = all_fetch_limit_base
+                    include_secondary_folders = (poll_count % 3 == 0)
                 if use_oauth:
                     conn = get_outlook_conn(imap_user, outlook_client_id, outlook_refresh_token)
                     msgs = []
-                    for folder in OUTLOOK_FOLDERS:
+                    folders = OUTLOOK_PRIMARY_FOLDERS + (
+                        OUTLOOK_SECONDARY_FOLDERS if include_secondary_folders else ()
+                    )
+                    for folder in folders:
                         msgs += fetch_outlook_messages_by_queries(
                             conn,
                             folder=folder,
-                            limit=fetch_limit,
+                            unseen_limit=unseen_fetch_limit,
+                            all_limit=all_fetch_limit,
                         )
                 else:
+                    imap_conn_key = (imap_host, imap_port, imap_user, imap_pass)
+                    if _imap_conn is None or _imap_conn_key != imap_conn_key:
+                        log.info("[IMAP] 建立连接前等待 5s")
+                        await asyncio.sleep(5)
                     mailbox = get_mailbox(imap_host, imap_port, imap_user, imap_pass)
                     msgs = []
-                    for folder in IMAP_FOLDERS:
+                    folder_key = (imap_host, imap_port, imap_user, imap_pass)
+                    discovered_folders = get_imap_scan_folders(mailbox, folder_key)
+                    if include_secondary_folders:
+                        folders = discovered_folders
+                    else:
+                        folders = tuple(
+                            f for f in discovered_folders if f.lower() in {"inbox"}
+                        ) or IMAP_PRIMARY_FOLDERS
+                    for folder in folders:
                         try:
                             mailbox.client.select(folder)
                             msgs += fetch_mailbox_messages_by_queries(
                                 mailbox,
-                                limit=fetch_limit,
+                                unseen_limit=unseen_fetch_limit,
+                                all_limit=all_fetch_limit,
+                                target_email=email_lower,
                             )
                         except Exception:
                             pass
@@ -211,11 +333,16 @@ async def get_verification_code(
                 msgs = sort_and_dedupe_messages(msgs)
                 scanned_count = len(msgs)
                 openai_count = 0
-                recipient_match_count = 0
+                fallback_code = None
+                fallback_msg = None
+                recent_fallback_code = None
+                recent_fallback_msg = None
+                nearest_fallback_code = None
+                nearest_fallback_msg = None
+                nearest_fallback_delta = None
 
                 for msg in msgs:
-                    sender_lower = message_sender_lower(msg)
-                    if not is_openai_sender(sender_lower):
+                    if not looks_like_openai_otp_message(msg):
                         continue
                     openai_count += 1
 
@@ -224,13 +351,14 @@ async def get_verification_code(
                     if age > max_mail_age:
                         continue
                     if min_mail_timestamp is not None and msg_timestamp <= min_mail_timestamp:
-                        continue
-                    if not recipient_matches(email_lower, msg):
-                        continue
-                    recipient_match_count += 1
+                        if (min_mail_timestamp - msg_timestamp) > min_timestamp_skew_seconds:
+                            pass
 
                     otp_code = extract_otp_code(msg)
-                    if otp_code:
+                    if not otp_code:
+                        continue
+                    recipient_ok = skip_recipient_check or recipient_matches(email_lower, msg)
+                    if recipient_ok:
                         found_code = otp_code
                         log.step(f"[IMAP] 命中目标邮件: {summarize_message(msg)}")
                         log.success(f"验证码: {found_code} (邮件时间: {msg.date})")
@@ -242,21 +370,48 @@ async def get_verification_code(
                         except Exception:
                             pass
                         break
+                    if min_mail_timestamp is not None:
+                        delta = abs(msg_timestamp - min_mail_timestamp)
+                        if nearest_fallback_delta is None or delta < nearest_fallback_delta:
+                            nearest_fallback_delta = delta
+                            nearest_fallback_code = otp_code
+                            nearest_fallback_msg = msg
+                    if (
+                        recent_fallback_code is None
+                        and min_mail_timestamp is not None
+                        and msg_timestamp >= (min_mail_timestamp - min_timestamp_skew_seconds)
+                    ):
+                        recent_fallback_code = otp_code
+                        recent_fallback_msg = msg
+                    if fallback_code is None:
+                        fallback_code = otp_code
+                        fallback_msg = msg
 
                 if found_code:
                     return found_code
+                if nearest_fallback_code and not skip_recipient_check:
+                    log.step(f"[IMAP] 使用最接近发送时间的 OTP 回退: {summarize_message(nearest_fallback_msg)}")
+                    log.success(f"验证码: {nearest_fallback_code} (邮件时间: {nearest_fallback_msg.date})")
+                    return nearest_fallback_code
+                if recent_fallback_code and not skip_recipient_check:
+                    log.step(f"[IMAP] 使用发送后最新 OTP 邮件回退: {summarize_message(recent_fallback_msg)}")
+                    log.success(f"验证码: {recent_fallback_code} (邮件时间: {recent_fallback_msg.date})")
+                    return recent_fallback_code
+                if fallback_code and skip_recipient_check:
+                    log.step(f"[IMAP] 收件人未匹配，使用最近 OTP 邮件回退: {summarize_message(fallback_msg)}")
+                    log.success(f"验证码: {fallback_code} (邮件时间: {fallback_msg.date})")
+                    return fallback_code
 
                 elapsed = int(time.time() - start)
                 log.info(
                     f"[IMAP] 第 {poll_count} 轮未命中验证码: "
-                    f"扫描 {scanned_count} 封, OpenAI 邮件 {openai_count} 封, "
-                    f"目标收件人候选 {recipient_match_count} 封, 已等待 {elapsed}s"
+                    f"扫描 {scanned_count} 封, OpenAI 邮件 {openai_count} 封, 已等待 {elapsed}s"
                 )
 
         except Exception as e:
             log.exception("[IMAP] 获取邮件错误", e)
-            global _imap_conn, _outlook_conn
             _imap_conn = None
+            _imap_folders_cache = None
             _outlook_conn = None
 
         await asyncio.sleep(3)

@@ -1,19 +1,28 @@
 import asyncio
+import importlib
 import json
 import random
+import re
 import string
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import urlencode
 
-import anyio
-import httpx
+try:
+    httpx = importlib.import_module("httpx")
+except Exception as e:
+    raise ImportError("httpx is required for OpenAI engine") from e
 
 try:
-    from httpx_socks import AsyncProxyTransport
-except ImportError:
+    AnyioEndOfStream = importlib.import_module("anyio").EndOfStream
+except Exception:
+    AnyioEndOfStream = RuntimeError
+
+try:
+    AsyncProxyTransport = importlib.import_module("httpx_socks").AsyncProxyTransport
+except Exception:
     AsyncProxyTransport = None
 
 from ...config import get_config
@@ -49,6 +58,7 @@ from .http_helpers import (
 
 
 REGISTRATION_EXECUTOR = ThreadPoolExecutor(max_workers=50)
+EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 
 
 class OpenAIEngine(BaseEngine):
@@ -153,6 +163,30 @@ class OpenAIEngine(BaseEngine):
             "codex_cli_simplified_flow": "true",
         }
         return f"{AUTH_ENDPOINT}?{urlencode(params)}"
+
+    def _extract_email_from_payload(self, payload) -> Optional[str]:
+        if isinstance(payload, dict):
+            for k, v in payload.items():
+                key = str(k).lower()
+                if key in {"email", "username", "login", "identifier", "value"} and isinstance(v, str) and "@" in v:
+                    return v.strip().lower()
+                found = self._extract_email_from_payload(v)
+                if found:
+                    return found
+        elif isinstance(payload, list):
+            for item in payload:
+                found = self._extract_email_from_payload(item)
+                if found:
+                    return found
+        return None
+
+    def _extract_email_from_text(self, text: str) -> Optional[str]:
+        if not text:
+            return None
+        m = EMAIL_RE.search(text)
+        if not m:
+            return None
+        return m.group(0).strip().lower()
 
     async def _claim_round(self, count: int) -> Optional[int]:
         # 为 worker 申请一个新的执行轮次；count=0 表示无限轮次
@@ -392,18 +426,20 @@ class OpenAIEngine(BaseEngine):
         email: str,
         tempmail_token: str = "",
         otp_sent_at: Optional[float] = None,
+        wait_timeout: Optional[int] = None,
     ) -> Optional[str]:
         # 这里不再做外层多轮等待，直接交给 email_util 内部轮询到超时
         if self._stop_event.is_set():
             log.info("[OpenAI] 任务已停止")
             return None
+        timeout_seconds = int(wait_timeout) if wait_timeout else int(cfg.get("email_otp_timeout", 120))
         otp = await get_verification_code(
             email,
             cfg["imap_host"],
             cfg["imap_port"],
             cfg["imap_user"],
             cfg["imap_pass"],
-            timeout=int(cfg.get("email_otp_timeout", 120)),
+            timeout=timeout_seconds,
             outlook_client_id=cfg.get("outlook_client_id", ""),
             outlook_refresh_token=cfg.get("outlook_refresh_token", ""),
             stop_event=self._stop_event,
@@ -670,6 +706,17 @@ class OpenAIEngine(BaseEngine):
                     log_http_failure("[OpenAI] 提交注册表单失败", resp)
                     return False
                 log.success(f"[OpenAI] 注册表单已提交: {resp.status_code}")
+                try:
+                    signup_data = resp.json()
+                except Exception:
+                    signup_data = None
+                server_email = self._extract_email_from_payload(signup_data)
+                if not server_email:
+                    server_email = self._extract_email_from_text(resp.text)
+                if server_email and server_email != email.lower():
+                    log.info(f"[OpenAI] 服务端注册邮箱与本地不一致，切换为: {server_email}")
+                    email = server_email
+                    self._last_registered_email = email
 
                 # Step 4: 提交密码注册
                 log.step("[OpenAI] Step 4: 提交密码...")
@@ -690,7 +737,6 @@ class OpenAIEngine(BaseEngine):
                     return False
                 log.success(f"[OpenAI] 密码已提交: {resp.status_code}")
 
-                # Step 4.5: 发送验证码
                 log.step("[OpenAI] Step 4.5: 发送验证码...")
                 sentinel = await self._get_sentinel_header(client, device_id)
                 if not sentinel:
@@ -706,9 +752,23 @@ class OpenAIEngine(BaseEngine):
                         "openai-sentinel-token": sentinel,
                     },
                 )
+                if resp.status_code != 200:
+                    log_http_failure("[OpenAI] 发送验证码失败", resp)
+                    return False
+                try:
+                    send_otp_data = resp.json()
+                except Exception:
+                    send_otp_data = None
+                otp_email = self._extract_email_from_payload(send_otp_data)
+                if not otp_email:
+                    otp_email = self._extract_email_from_text(resp.text)
+                if otp_email and otp_email != email.lower():
+                    log.info(f"[OpenAI] 服务端验证码目标邮箱更新为: {otp_email}")
+                    email = otp_email
+                    self._last_registered_email = email
 
-                # Step 5: 获取邮箱验证码（IMAP/Tempmail 内部负责轮询与超时）
                 log.step("[OpenAI] Step 5: 等待邮箱验证码...")
+                log.info(f"[OpenAI] Step 5 当前目标邮箱: {email}")
                 otp = await self._wait_for_email_otp(
                     cfg,
                     email,
@@ -732,7 +792,7 @@ class OpenAIEngine(BaseEngine):
                     ),
                     attempts=4,
                     retry_exceptions=(
-                        anyio.EndOfStream,
+                        AnyioEndOfStream,
                         httpx.ConnectError,
                         httpx.ConnectTimeout,
                         httpx.ReadError,
