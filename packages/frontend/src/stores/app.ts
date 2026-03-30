@@ -108,6 +108,12 @@ export const useAppStore = defineStore('app', () => {
       registrationSuccessTick.value += 1
       void fetchStats()
     }
+    if (
+      normalizedEntry.level === 'info'
+      && normalizedEntry.message.includes('任务结束 - 成功:')
+    ) {
+      void fetchStats()
+    }
   }
 
   function clearLogs() {
