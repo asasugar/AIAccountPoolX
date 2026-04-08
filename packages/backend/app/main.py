@@ -15,7 +15,9 @@ from .proxy_pool import proxy_pool
 from .platforms.registry import registry
 from .api import task, tokens, config_api, stats, ws, platforms, logs, accounts, newapi
 from .aws_gateway import shutdown_gateway
-
+from .register_utils import (
+    check_ip_location
+)
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 
@@ -29,6 +31,11 @@ async def lifespan(app: FastAPI):
     # 初始化代理池
     proxy_pool.configure(cfg)
     log_manager.set_loop(asyncio.get_event_loop())
+    ip_ok, location = check_ip_location()
+    if not ip_ok:
+        log_manager.error(f"IP 地理位置不支持: {location}")
+        raise RuntimeError(f"IP 地理位置不支持: {location}")
+    log_manager.info(f"IP 位置: {location}")
     log_manager.info("AIAccountPoolX 后端已启动")
     platform_names = [p["name"] for p in registry.list_platforms()]
     log_manager.info(f"已注册平台: {', '.join(platform_names)}")
