@@ -36,6 +36,7 @@ from ...oauth import (
 from ...proxy_pool import proxy_pool
 from ...token_manager import token_manager
 from ...aws_gateway import get_gateway
+from ...register_utils import session_device_id
 from ..base import BaseEngine
 from .constants import (
     API_AUTHORIZE_CONTINUE,
@@ -76,6 +77,7 @@ class OpenAIEngine(BaseEngine):
         self._round_lock = asyncio.Lock()
         self._counter_lock = asyncio.Lock()
         self._next_round_index = 0
+        self._cached_device_id: Optional[str] = None
 
     def get_config_fields(self) -> list[dict]:
         # Web 配置页展示字段
@@ -907,6 +909,7 @@ class OpenAIEngine(BaseEngine):
             **client_kwargs,
         ) as client:
             try:
+                session_device_id(client, self._cached_device_id)
                 real_ip = await self._fetch_real_ip(transport_kwargs, socks_transport)
                 log.info(f"[OpenAI] 当前出口 IP: {real_ip}")
 
@@ -921,14 +924,12 @@ class OpenAIEngine(BaseEngine):
                     on_retry_message=lambda attempt, e: f"[OpenAI] Step 1 连接失败，{2 - attempt} 秒后重试: {e}",
                     sleep_seconds=lambda _: 2,
                 )
-                if resp.status_code not in [200, 302]:
-                    log_http_failure("[OpenAI] 访问授权页面失败", resp, body_limit=200)
-                    return False
 
-                device_id = client.cookies.get("oai-did")
+                device_id = client.cookies.get("oai-did") or self._cached_device_id
                 if not device_id:
                     device_id = str(uuid.uuid4())
                     client.cookies.set("oai-did", device_id, domain=".openai.com")
+                self._cached_device_id = str(device_id)
                 log.success(f"[OpenAI] Device ID: {device_id}")
 
                 # Step 2: 获取 Sentinel Token (简单模式，与 auto.py 一致)

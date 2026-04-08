@@ -15,16 +15,25 @@ CALLBACK_PORT = 1455
 REDIRECT_URI = f"http://localhost:{CALLBACK_PORT}/auth/callback"
 
 
-def generate_pkce_codes():
-    verifier_bytes = secrets.token_bytes(32)
-    code_verifier = base64.urlsafe_b64encode(verifier_bytes).rstrip(b"=").decode("ascii")
+def generate_pkce_codes() -> str:
+    """生成 PKCE code_verifier"""
+    code_verifier = secrets.token_urlsafe(64)
+    """SHA256 哈希后 Base64 URL 编码"""
     digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
-    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    """Base64 URL 编码（无填充）"""
+    code_challenge = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
     return code_verifier, code_challenge
+    # verifier_bytes = secrets.token_bytes(32)
+    # code_verifier = base64.urlsafe_b64encode(verifier_bytes).rstrip(b"=").decode("ascii")
+    # digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    # code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    # """SHA256 哈希后 Base64 URL 编码"""
+    # return code_verifier, code_challenge
 
 
-def generate_state():
-    return secrets.token_urlsafe(32)
+def generate_state(nbytes: int = 16) -> str:
+    """生成随机 state"""
+    return secrets.token_urlsafe(nbytes)
 
 
 def build_auth_url(code_challenge, state):

@@ -21,3 +21,10 @@ def check_ip_location() -> Tuple[bool, Optional[str]]:
     except Exception as e:
         logger.error(f"检查 IP 地理位置失败: {e}")
         return False, None
+
+def session_device_id(session: httpx.AsyncClient, cached_device_id: Optional[str] = None) -> Optional[str]:
+    if cached_device_id:
+        session.cookies.set("oai-did", cached_device_id, domain=".openai.com")
+        return cached_device_id
+    did = str(session.cookies.get("oai-did") or "").strip()
+    return did or None
